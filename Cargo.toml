@@ -1,0 +1,126 @@
+[package]
+name = "drengr-hands"
+version = "0.10.13"
+edition = "2021"
+authors = ["Drengr"]
+license = "MIT"
+description = "Eyes and hands for AI agents on mobile devices"
+repository = "https://github.com/SharminSirajudeen/drengr-hands"
+
+[[bin]]
+name = "drengr"
+path = "src/main.rs"
+
+[features]
+default = []
+# Enable the Android end-to-end smoke at tests/android_headless_adb.rs.
+# Requires a running emulator on `emulator-5554` (boot one with
+# `emulator @<avd>` or use the GitHub Actions android-e2e workflow).
+# Drives the AdbTransport stack (screenshot → ui_tree → tap → launch_app)
+# against the device's launcher / Settings — no APK fixture required.
+android-e2e = []
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+async-trait = "0.1"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Constant-time comparison for the SDK auth token (Fix 1.5).
+subtle = "2.5"
+
+# Secure temp files (Fix 2.10) — used by simctl screenshot to avoid the
+# predictable /tmp/drengr_screenshot_*.png symlink-attack vector.
+tempfile = "3.8"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP client (for Appium WebDriver)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+# Embedded HTTPS MITM proxy for opt-in body capture (network Phase B). Pure
+# gzip/deflate decode for captured (stored) response bodies — already in-tree.
+
+# HTTP server (MCP streamable HTTP transport — hosts that can't spawn stdio,
+# e.g. Android Studio). All three are already in the tree via reqwest.
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+dirs = "5.0"
+
+# Interactive onboarding wizard (guarded behind is_terminal()).
+dialoguer = { version = "0.11", default-features = false, features = ["password"] }
+indicatif = "0.17"
+
+# Image processing
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# imageproc dropped — its single use (draw_filled_circle_mut) is now inlined
+# in src/screen/annotate.rs. Removing it dropped ~30 transitive deps including
+# rand 0.8, rayon, rusttype.
+
+# Base64 (screenshots in MCP responses)
+base64 = "0.22"
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID (run IDs)
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Unix fd manipulation (MCP stdout redirect)
+libc = "0.2"
+
+# YAML parsing (drengr-tests.yml)
+# Upstream serde_yaml is deprecated but the popular forks (serde_yml,
+# saphyr) carry their own unsound/unmaintained advisories. Stay on
+# serde_yaml until a clearly-better-maintained successor stabilizes.
+serde_yaml = "0.9"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+
+# Embeds drengr-runner/ Swift source into the binary at compile time. Extracted
+# to ~/.drengr/runner/src/<sha>/ on first iOS use. See src/driver/bootstrap.rs.
+include_dir = "0.7"
+
+# PII redaction patterns for diagnostic bundles (src/redact.rs).
+regex = "1.10"
+
+# Advisory file locking for the per-UDID driver lock file
+# (~/.drengr/runner/.locks/<udid>.lock). See src/driver/locks.rs.
+fs2 = "0.4"
+
+# OS-native credential storage for LLM API keys + license key.
+# `vendored` statically links libdbus on Linux so curl|bash installs work
+# without requiring users to install dbus-dev system packages.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
+
+[build-dependencies]
+# Used by build.rs to SHA-256 the drengr-runner/ Swift source tree.
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3.8"
+# HTTP mocking for driver client unit tests against a mock runner.
+wiremock = "0.6"
+
+[profile.release]
+lto = "fat"
+opt-level = "z"
+strip = "symbols"
+codegen-units = 1
+debug = false
+debug-assertions = false
+
+[profile.release.package."*"]
+opt-level = "z"
+strip = "symbols"

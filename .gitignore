@@ -1,0 +1,9 @@
+/target/
+*.swp
+.DS_Store
+.idea/
+.vscode/
+.env
+.env.*
+*.pem
+*.key
