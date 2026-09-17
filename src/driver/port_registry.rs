@@ -20,10 +20,11 @@ pub fn allocate(udid: &str) -> crate::driver::Result<u16> {
         return Ok(p);
     }
 
-    let env_port = std::env::var("DRENGR_RUNNER_PORT").ok();
-    let port = if reg.is_empty() && env_port.is_some() {
-        env_port
-            .unwrap()
+    let env_port = std::env::var("DRENGR_RUNNER_PORT")
+        .ok()
+        .filter(|_| reg.is_empty());
+    let port = if let Some(explicit) = env_port {
+        explicit
             .parse::<u16>()
             .map_err(|e| DriverError::Io(format!("DRENGR_RUNNER_PORT invalid: {e}")))?
     } else {

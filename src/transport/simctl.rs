@@ -508,7 +508,7 @@ fn find_plist_value(chunk: &str, key: &str) -> Option<String> {
     let needle = format!("{} = ", key);
     if let Some(idx) = chunk.find(&needle) {
         let after = &chunk[idx + needle.len()..];
-        let end = after.find(|c| c == ';' || c == '\n').unwrap_or(after.len());
+        let end = after.find([';', '\n']).unwrap_or(after.len());
         let raw = after[..end].trim().trim_matches('"');
         if !raw.is_empty() {
             return Some(raw.to_string());
@@ -957,7 +957,7 @@ impl DeviceTransport for SimctlTransport {
             anyhow::bail!("Invalid package name");
         }
         let lines = lines.min(500);
-        let lines_duration = (lines / 10).max(5).min(60);
+        let lines_duration = (lines / 10).clamp(5, 60);
 
         if !crate::validate::is_valid_predicate_token(package) {
             anyhow::bail!("read_logs: package failed predicate validator");

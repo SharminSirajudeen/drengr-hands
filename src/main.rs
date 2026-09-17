@@ -510,8 +510,8 @@ async fn print_update_notice() {
     if let Ok(Some(latest)) = check_for_update().await {
         let current = env!("CARGO_PKG_VERSION");
         eprintln!(
-            "\n  {} Update available: {} → {}\n  Run: {}",
-            "⬆", current, latest, "drengr update"
+            "\n  ⬆ Update available: {} → {}\n  Run: drengr update",
+            current, latest
         );
     }
 }
@@ -1575,7 +1575,7 @@ async fn main() -> anyhow::Result<()> {
             let mut any_cloud = false;
             for (name, var1, var2) in cloud_checks {
                 let ok =
-                    std::env::var(var1).is_ok() && var2.map_or(true, |v| std::env::var(v).is_ok());
+                    std::env::var(var1).is_ok() && var2.is_none_or(|v| std::env::var(v).is_ok());
                 if ok {
                     println!("  [✓] Cloud: {:<16} configured", name);
                     any_cloud = true;
@@ -2062,7 +2062,7 @@ async fn handle_diag(action: DiagAction) -> anyhow::Result<()> {
                 let age_s = now_unix().saturating_sub(modified);
                 println!("  {}  age:{}s  path:{}", run_id, age_s, path.display());
             }
-            println!("\nShare one with `drengr diag share <run_id>` (anonymized).");
+            println!("\nRead one with `drengr diag show <run_id>` — redacted on disk.");
             Ok(())
         }
         DiagAction::Show { run_id } => {

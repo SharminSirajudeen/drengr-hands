@@ -469,7 +469,7 @@ mod tests {
         cut.truncated = BodyTruncation::Response;
         let mut e = expect("*/v1/checkout");
         e.body_includes = Some("checkout_completed".into());
-        let out = evaluate(&e, &vec![cut]);
+        let out = evaluate(&e, &[cut]);
         assert!(matches!(out, ExpectOutcome::Inconclusive { .. }), "{out:?}");
         assert!(!out.fails_task());
     }

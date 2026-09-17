@@ -101,7 +101,7 @@ impl KeyStore {
                     break;
                 }
                 Err(CredentialError::Other(msg)) => {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, msg));
+                    return Err(std::io::Error::other(msg));
                 }
             }
         }
@@ -115,15 +115,12 @@ impl KeyStore {
     fn save_legacy_fallback(&self, why: &str) -> std::io::Result<()> {
         let opt_in = crate::credentials::keychain_disabled();
         if !opt_in {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!(
-                    "OS keychain unavailable ({why}). Either:\n  \
+            return Err(std::io::Error::other(format!(
+                "OS keychain unavailable ({why}). Either:\n  \
                      (a) export the provider env var (e.g. OPENAI_API_KEY),\n  \
                      (b) set DRENGR_KEYCHAIN=disable to use the legacy file,\n  \
                      (c) start a keyring daemon (Linux: gnome-keyring / kwallet)."
-                ),
-            ));
+            )));
         }
         tracing::warn!("DRENGR_KEYCHAIN=disable set; writing LLM keys to legacy file (insecure)");
         write_legacy_file(&self.keys)
@@ -217,8 +214,7 @@ fn write_legacy_file(keys: &HashMap<String, String>) -> std::io::Result<()> {
     let path = dir.join(LEGACY_FILE);
     let tmp = dir.join(".llm_keys.json.tmp");
 
-    let json = serde_json::to_string_pretty(keys)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let json = serde_json::to_string_pretty(keys).map_err(std::io::Error::other)?;
 
     #[cfg(unix)]
     {

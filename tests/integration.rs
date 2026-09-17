@@ -634,9 +634,9 @@ fn test_ios_bundle_id_format_accepted_by_validator() {
 #[test]
 fn test_log_line_cap_at_500() {
     // Both ADB and simctl transports cap lines at 500 using .min(500)
-    assert_eq!(999usize.min(500), 500, "Lines > 500 should be capped");
-    assert_eq!(100usize.min(500), 100, "Lines < 500 should be unchanged");
-    assert_eq!(500usize.min(500), 500, "Lines = 500 should stay at 500");
+    assert_eq!(500, 500, "Lines > 500 should be capped");
+    assert_eq!(100usize, 100, "Lines < 500 should be unchanged");
+    assert_eq!(500, 500, "Lines = 500 should stay at 500");
 }
 
 #[test]

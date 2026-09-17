@@ -34,12 +34,20 @@ drengr run --app com.example.app --task "log in with test@test.com"
 ```
 
 Seven providers, plus `DRENGR_BASE_URL` for any OpenAI-compatible endpoint
-(OpenRouter, LiteLLM, vLLM). Ollama works with no key at all:
+(OpenRouter, LiteLLM, vLLM). Ollama runs it with no key and no account:
 
 ```bash
+ollama pull qwen2.5vl:7b
 export DRENGR_VISION_PROVIDER=ollama
 drengr run --app com.example.app --task "add the first item to the cart"
 ```
+
+The model has to accept images and emit strict JSON — the loop escalates to
+vision when a screen is underlabelled. `qwen2.5vl:7b` is the tested default;
+text-only or thinking-style models will fail to produce a parseable decision.
+
+Simple instructions that name a visible element resolve without any model call
+at all, so a lot of a run costs nothing.
 
 It is your key and your bill, always. Nothing is proxied through us.
 

@@ -673,9 +673,14 @@ mod tests {
             framed <= MAX_MSG_SIZE,
             "a frame carrying two bodies at the SDK's 64 KB cap is {framed} bytes, over the {MAX_MSG_SIZE} cap"
         );
-        assert!(
-            MAX_MSG_SIZE < 1_048_576,
-            "the cap must stay under the pre-hardening 1 MB"
-        );
+        // Constant by construction: that is the point. It fails the build if
+        // anyone raises the cap back toward the pre-hardening 1 MB.
+        #[allow(clippy::assertions_on_constants)]
+        {
+            assert!(
+                MAX_MSG_SIZE < 1_048_576,
+                "the cap must stay under the pre-hardening 1 MB"
+            );
+        }
     }
 }

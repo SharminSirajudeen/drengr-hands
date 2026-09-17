@@ -117,6 +117,9 @@ pub fn render_text_scene_section(scene: &str) -> String {
 
 /// Build the per-step OODA prompt. `stuck_hint` comes from `build_stuck_hint`.
 /// `allow_wait=false` drops `wait` from the action menu.
+// Eight inputs, each a distinct prompt section. A struct here would only move
+// the same fields behind a name every call site has to spell out.
+#[allow(clippy::too_many_arguments)]
 pub fn generate_ooda_prompt(
     task: &str,
     step: usize,

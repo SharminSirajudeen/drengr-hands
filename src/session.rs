@@ -211,7 +211,7 @@ impl Session {
                 .mode(0o600)
                 .open(&path)?
                 .write_all(json.as_bytes())?;
-            return Ok(path);
+            Ok(path)
         }
         #[cfg(not(unix))]
         {
@@ -248,7 +248,7 @@ pub fn save_screenshot(session_id: &str, step: usize, png_data: &[u8]) -> anyhow
             .mode(0o600)
             .open(&path)?
             .write_all(png_data)?;
-        return Ok(filename);
+        Ok(filename)
     }
     #[cfg(not(unix))]
     {

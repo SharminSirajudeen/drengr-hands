@@ -299,7 +299,7 @@ impl McpHandlers {
                 // and the LLM filters by the active device. Future: detect from transport.
                 let hints_enabled = crate::situation::hints::hints_enabled();
                 let body = crate::mcp::capabilities::capabilities_response(None, hints_enabled);
-                return ToolResult::text(serde_json::to_string_pretty(&body).unwrap_or_default());
+                ToolResult::text(serde_json::to_string_pretty(&body).unwrap_or_default())
             }
             "devices" => {
                 let devices = crate::transport::detect::detect_devices().await;

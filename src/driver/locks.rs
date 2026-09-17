@@ -118,6 +118,7 @@ fn open_lock_file(path: &PathBuf) -> crate::driver::Result<File> {
     }
     Ok(OpenOptions::new()
         .create(true)
+        .truncate(false)
         .read(true)
         .write(true)
         .open(path)?)
@@ -125,6 +126,10 @@ fn open_lock_file(path: &PathBuf) -> crate::driver::Result<File> {
 
 #[cfg(test)]
 mod tests {
+    // These tests hold the process-wide credentials test lock for their whole
+    // body on purpose: that serialisation is what makes them deterministic.
+    #![allow(clippy::await_holding_lock)]
+
     use super::*;
     use crate::credentials;
 

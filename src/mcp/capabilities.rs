@@ -150,7 +150,7 @@ mod tests {
         // Top-level keys are exactly these four — no leakage.
         let mut keys: Vec<&String> = obj.keys().collect();
         keys.sort();
-        let expected = vec!["actions", "active_platform", "hints_enabled", "queries"];
+        let expected = ["actions", "active_platform", "hints_enabled", "queries"];
         assert_eq!(keys, expected.iter().collect::<Vec<_>>());
 
         // First action has only the documented fields, nothing else.
@@ -164,7 +164,7 @@ mod tests {
         let action_obj = first.as_object().unwrap();
         let mut action_keys: Vec<&String> = action_obj.keys().collect();
         action_keys.sort();
-        let expected_action_keys = vec![
+        let expected_action_keys = [
             "destructive",
             "example",
             "name",

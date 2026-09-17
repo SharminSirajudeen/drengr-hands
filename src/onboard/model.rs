@@ -285,8 +285,8 @@ async fn pull_ollama_model(model: &str) -> bool {
                 return false;
             }
             if let (Some(done), Some(total)) = (v["completed"].as_u64(), v["total"].as_u64()) {
-                if total > 0 {
-                    bar.set_position(done * 100 / total);
+                if let Some(pct) = (done * 100).checked_div(total) {
+                    bar.set_position(pct);
                     bar.set_message(format!(
                         "{:.1} / {:.1} GB",
                         done as f64 / 1e9,
@@ -354,6 +354,6 @@ mod tests {
     #[test]
     fn ram_detection_is_plausible() {
         let gb = total_ram_gb();
-        assert!(gb >= 1 && gb < 100_000, "implausible RAM: {gb} GB");
+        assert!((1..100_000).contains(&gb), "implausible RAM: {gb} GB");
     }
 }

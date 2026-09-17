@@ -143,7 +143,7 @@ mod capture_honesty_guard {
                     _ => {}
                 }
             }
-            out.push((line_of(&code, at), code[body_at..end].to_string()));
+            out.push((line_of(code, at), code[body_at..end].to_string()));
         }
         out
     }

@@ -373,7 +373,7 @@ pub fn parse_ui_tree_xml(xml: &str) -> Result<Vec<UiElement>> {
 /// Aggregate text from non-interactive child elements into clickable parents that have no label.
 /// Fixes compound layouts where e.g. LinearLayout(clickable) contains [TextView("Product"), TextView("$42")]
 /// → the LinearLayout gets text "Product · $42" so the agent can identify it.
-fn aggregate_child_text(elements: &mut Vec<UiElement>) {
+fn aggregate_child_text(elements: &mut [UiElement]) {
     let n = elements.len();
     let mut updates: Vec<(usize, String)> = Vec::new();
 
@@ -1268,9 +1268,7 @@ pub fn parse_logcat_lines(output: &str) -> Vec<crate::transport::LogEntry> {
             let timestamp = &trimmed[..18];
             // Find the level character (single letter after PID/TID)
             let rest = &trimmed[18..];
-            if let Some(level_pos) =
-                rest.find(|c: char| matches!(c, 'V' | 'D' | 'I' | 'W' | 'E' | 'F'))
-            {
+            if let Some(level_pos) = rest.find(['V', 'D', 'I', 'W', 'E', 'F']) {
                 let level = &rest[level_pos..level_pos + 1];
                 let after_level = rest[level_pos + 1..].trim_start();
                 if let Some(colon_pos) = after_level.find(": ") {

@@ -1,6 +1,7 @@
 //! Drengr Runner bootstrap. Split into two paths:
 //! - `prebuild_runner` (interactive CLI): extract source, xcodebuild, cache `.app`.
 //! - `ensure_ready` (MCP-safe): install cached `.app`, launch, wait ready.
+//!
 //! See `runbooks/v060-drengr-runner-2026-05-14.md` §§5,7,8.
 
 use std::path::{Path, PathBuf};

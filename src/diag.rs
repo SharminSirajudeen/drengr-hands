@@ -1,6 +1,6 @@
-//! Tier 2 diagnostic bundles — written locally on stuck/crash, uploaded
-//! ONLY when the user runs `drengr diag share <run_id>`. Everything is
-//! redacted client-side via `crate::redact` before it ever touches disk.
+//! Diagnostic bundles, written to `~/.drengr/diagnostics/` when a run gets
+//! stuck or crashes. Everything is redacted via `crate::redact` before it
+//! touches disk, so a bundle is safe to read and safe to attach to an issue.
 
 use std::path::PathBuf;
 
@@ -80,18 +80,24 @@ pub fn load_bundle(run_id: &str) -> Result<DiagnosticBundle> {
     serde_json::from_slice(&bytes).context("deserialize bundle")
 }
 
+/// Identity of the run a bundle describes. Named fields, because ten
+/// positional strings in a row are two transposed arguments waiting to happen.
+pub struct RunMeta<'a> {
+    pub run_id: &'a str,
+    pub platform: &'a str,
+    pub outcome: &'a str,
+    pub model: &'a str,
+    pub provider: &'a str,
+    pub version: &'a str,
+    pub task_kind: &'a str,
+    pub final_activity_kind: &'a str,
+    pub step_count: u32,
+    pub duration_ms: u32,
+}
+
 /// Build a redacted bundle from an OODA history slice.
 pub fn build_from_history(
-    run_id: &str,
-    platform: &str,
-    outcome: &str,
-    model: &str,
-    provider: &str,
-    version: &str,
-    task_kind: &str,
-    final_activity_kind: &str,
-    step_count: u32,
-    duration_ms: u32,
+    meta: RunMeta<'_>,
     history: &[crate::ooda::OodaStepSummary],
     recent_scenes: &[&str],
 ) -> DiagnosticBundle {
@@ -106,16 +112,16 @@ pub fn build_from_history(
         .collect();
     let recent_scenes = recent_scenes.iter().map(|s| redact::redact(s)).collect();
     DiagnosticBundle {
-        run_id: run_id.to_string(),
-        platform: platform.to_string(),
-        outcome: outcome.to_string(),
-        model: model.to_string(),
-        provider: provider.to_string(),
-        version: version.to_string(),
-        task_kind: task_kind.to_string(),
-        final_activity_kind: final_activity_kind.to_string(),
-        step_count,
-        duration_ms,
+        run_id: meta.run_id.to_string(),
+        platform: meta.platform.to_string(),
+        outcome: meta.outcome.to_string(),
+        model: meta.model.to_string(),
+        provider: meta.provider.to_string(),
+        version: meta.version.to_string(),
+        task_kind: meta.task_kind.to_string(),
+        final_activity_kind: meta.final_activity_kind.to_string(),
+        step_count: meta.step_count,
+        duration_ms: meta.duration_ms,
         action_trail,
         recent_scenes,
     }
@@ -132,7 +138,6 @@ fn redact_action(action: &str) -> String {
     redact::redact(action)
 }
 
-/// Upload a bundle to Supabase. Used by the `drengr diag share <run_id>` CLI.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,16 +166,18 @@ mod tests {
         }];
         let scenes = vec!["Screen showing user@example.com"];
         let b = build_from_history(
-            "rid",
-            "ios",
-            "judge_pass",
-            "qwen2.5vl:7b",
-            "ollama",
-            "0.3.0",
-            "open_app",
-            "foreground_app",
-            1,
-            1000,
+            RunMeta {
+                run_id: "rid",
+                platform: "ios",
+                outcome: "judge_pass",
+                model: "qwen2.5vl:7b",
+                provider: "ollama",
+                version: "0.3.0",
+                task_kind: "open_app",
+                final_activity_kind: "foreground_app",
+                step_count: 1,
+                duration_ms: 1000,
+            },
             &history,
             &scenes,
         );

@@ -96,16 +96,18 @@ fn finalize_run(
             .as_millis()
             .min(u32::MAX as u128) as u32;
         let bundle = crate::diag::build_from_history(
-            &builder.run_id,
-            &builder.platform,
-            outcome.as_str(),
-            &builder.model,
-            &builder.provider,
-            env!("CARGO_PKG_VERSION"),
-            task_kind.as_str(),
-            final_activity_kind.as_str(),
-            step_count.min(u32::MAX as usize) as u32,
-            duration_ms,
+            crate::diag::RunMeta {
+                run_id: &builder.run_id,
+                platform: &builder.platform,
+                outcome: outcome.as_str(),
+                model: &builder.model,
+                provider: &builder.provider,
+                version: env!("CARGO_PKG_VERSION"),
+                task_kind: task_kind.as_str(),
+                final_activity_kind: final_activity_kind.as_str(),
+                step_count: step_count.min(u32::MAX as usize) as u32,
+                duration_ms,
+            },
             history,
             &recent,
         );
@@ -113,7 +115,7 @@ fn finalize_run(
             Ok(path) => {
                 eprintln!("\n[diag] bundle saved: {}", path.display());
                 eprintln!(
-                    "[diag] share it (anonymized) to help us fix this:\n  drengr diag share {}\n",
+                    "[diag] redacted on disk — read it with `drengr diag show {}`\n",
                     builder.run_id
                 );
             }

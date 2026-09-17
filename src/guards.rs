@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+
     use std::path::{Path, PathBuf};
 
     fn src_root() -> PathBuf {
