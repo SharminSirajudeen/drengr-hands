@@ -509,7 +509,16 @@ pub async fn run_ooda(
                 desc
             }
             Err(e) => {
+                // The rejection has to reach the next prompt. Dropped, the prompt
+                // is byte-identical and the model re-proposes the same invalid
+                // action every step until the budget is gone.
                 tracing::warn!("Action rejected at step {}: {}", step, e);
+                history.push(OodaStepSummary {
+                    step,
+                    action: format!("{} (rejected)", decision.action.canonical_name()),
+                    outcome: format!("Not executed: {e}. Choose a different action or supply the missing parameter."),
+                    screen_changed: false,
+                });
                 continue;
             }
         };

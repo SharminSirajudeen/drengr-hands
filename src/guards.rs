@@ -136,4 +136,23 @@ mod tests {
             );
         }
     }
+
+    /// A rejected action must be recorded, not just logged. Without the history
+    /// push the next prompt is byte-identical, so the model re-proposes the same
+    /// invalid action every step until the budget is gone. Verified on a device:
+    /// the diagnostic bundle went from 1 action to 5 once this landed.
+    #[test]
+    fn a_rejected_action_is_recorded_in_history() {
+        let src = std::fs::read_to_string(src_root().join("ooda/mod.rs")).expect("ooda/mod.rs");
+        let arm = src
+            .split("Action rejected at step")
+            .nth(1)
+            .expect("the rejection arm still logs a warning");
+        let arm = &arm[..arm.len().min(600)];
+        let needle = format!("history{}push", ".");
+        assert!(
+            arm.contains(needle.as_str()),
+            "the rejection arm logs but does not record the step, so the next prompt cannot differ:\n{arm}"
+        );
+    }
 }

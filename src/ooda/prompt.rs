@@ -734,4 +734,26 @@ mod tests {
         // Empty needle → None.
         assert_eq!(match_app(&installed, "  "), None);
     }
+
+    // Half of the rejection-feedback path: given a rejected step in history, the
+    // prompt renders it. The other half — that the loop actually pushes one — is
+    // pinned structurally in guards.rs, because this test passes either way.
+    #[test]
+    fn a_rejected_step_in_history_renders_into_the_prompt() {
+        let history = vec![OodaStepSummary {
+            step: 2,
+            action: "open_app (rejected)".to_string(),
+            outcome: "Not executed: open_app requires name. Choose a different action or supply the missing parameter.".to_string(),
+            screen_changed: false,
+        }];
+        let p = generate_ooda_prompt("open General", 3, 30, &history, "Screen", 5, None, true);
+        assert!(
+            p.contains("open_app (rejected)"),
+            "the rejected action is absent from the prompt:\n{p}"
+        );
+        assert!(
+            p.contains("requires name"),
+            "the rejection reason is absent, so the model cannot know what to fix:\n{p}"
+        );
+    }
 }
