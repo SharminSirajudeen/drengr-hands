@@ -94,12 +94,11 @@ for t in "${LINUX[@]}"; do
   cargo zigbuild --release --target "$t"
 done
 
-echo "▶ iOS helper (per-arch)"
-
+# ── Package tarballs + checksums ─────────────────────────────────────────
 echo "▶ packaging"
 for t in "${APPLE[@]}" "${LINUX[@]}"; do
   A="drengr-${VERSION}-${t}.tar.gz"
-  ( cd "target/$t/release" \
+  ( cd "target/$t/release" && tar czf "$WT/$A" drengr )
   shasum -a 256 "$A" > "$A.sha256"
 done
 
