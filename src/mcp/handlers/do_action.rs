@@ -285,6 +285,10 @@ impl McpHandlers {
             .and_then(|f| f.as_str())
             .unwrap_or_else(|| super::default_format());
 
+        if let Err(e) = super::check_format(format, super::DO_FORMATS) {
+            return ToolResult::error(e);
+        }
+
         // Hoist screen_size once (avoids redundant ADB call in swipe + post-action)
         let (screen_width, screen_height) = transport
             .screen_size()

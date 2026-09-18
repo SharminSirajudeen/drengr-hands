@@ -417,4 +417,38 @@ mod tests {
             "actions promising a platform they cannot serve: {broken:#?}"
         );
     }
+
+    /// A second list that must be kept in step with a first one drifts. These are
+    /// the places it already had: `find_mcp_configs` knew four of eight hosts, so
+    /// uninstall left Drengr wired into the other four; the CLI's hand-written
+    /// action list reached 30 of 40 in a day. Both now derive from their source.
+    #[test]
+    fn no_surface_keeps_its_own_copy_of_a_canonical_list() {
+        let main = std::fs::read_to_string(src_root().join("main.rs")).expect("main.rs");
+
+        // The client catalog is the only place a host's config path may be written.
+        let path_literal = format!("{}{}", "claude_desktop_", "config.json");
+        assert!(
+            !main.contains(path_literal.as_str()),
+            "main.rs writes a client config path that mcp::clients::all already owns"
+        );
+
+        // Action names belong to the catalog; the CLI points at it instead. Count
+        // only the doc block attached to `action`, not every other flag's help.
+        let doc_block: String = main
+            .split("action: String")
+            .next()
+            .unwrap_or("")
+            .lines()
+            .rev()
+            .take_while(|l| l.trim().starts_with("///"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let listed = doc_block.matches(" | ").count();
+        assert!(
+            listed < 15,
+            "the CLI is hand-listing actions again ({listed} in its own doc block); \
+             point at `drengr query capabilities` instead"
+        );
+    }
 }

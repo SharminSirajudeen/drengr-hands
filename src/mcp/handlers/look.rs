@@ -13,6 +13,10 @@ impl McpHandlers {
             .and_then(|f| f.as_str())
             .unwrap_or_else(|| super::default_format());
 
+        if let Err(e) = super::check_format(format, super::LOOK_FORMATS) {
+            return ToolResult::error(e);
+        }
+
         // 'grid' is the treeless fallback, so never wait on the tree it falls
         // back FROM — that dump is exactly what hangs (~10s, returns nothing).
         if format == "grid" {

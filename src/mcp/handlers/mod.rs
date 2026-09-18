@@ -15,6 +15,23 @@ use crate::transport::DeviceTransport;
 /// Emitted whenever a screen yields no elements, so the agent learns why its
 /// element taps will miss and what to do instead. Shared by look and do: a
 /// treeless screen reached mid-flow needs the same steer as one observed cold.
+/// The formats an observation can be rendered as. Unknown values used to fall
+/// through to the annotated image, so a typo handed an agent a 70KB screenshot
+/// when it asked for a 500-token scene, and said nothing.
+pub(crate) const LOOK_FORMATS: &[&str] = &["image", "clean", "text", "grid"];
+pub(crate) const DO_FORMATS: &[&str] = &["image", "clean", "text"];
+
+/// `Err` carries the message for the caller; `Ok` means the value is renderable.
+pub(crate) fn check_format(format: &str, allowed: &[&str]) -> Result<(), String> {
+    if allowed.contains(&format) {
+        return Ok(());
+    }
+    Err(format!(
+        "unknown format {format:?} — expected one of: {}",
+        allowed.join(", ")
+    ))
+}
+
 pub(crate) const NO_TREE_HINT: &str = "No UI elements are addressable on this screen. Element and element_text actions cannot resolve here. format='grid' returns a coordinate grid, and coordinate taps work on any screen. When tree_error is present the dump failed rather than the screen being empty, and a retry may recover the elements.";
 
 /// State shared across MCP tool calls.

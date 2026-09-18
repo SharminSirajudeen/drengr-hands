@@ -208,6 +208,10 @@ fn android_studio_config(home: &Path) -> Option<PathBuf> {
 }
 
 /// The full client matrix, with resolved paths for this machine.
+/// The port `drengr mcp --http` binds by default, and the one the Android Studio
+/// snippet assumes. Written in seven places before this existed.
+pub const DEFAULT_HTTP_PORT: u16 = 7878;
+
 pub fn all(home: &Path, http_port: u16) -> Vec<Client> {
     let claude_desktop = if cfg!(target_os = "macos") {
         home.join("Library/Application Support/Claude/claude_desktop_config.json")
@@ -235,7 +239,7 @@ pub fn all(home: &Path, http_port: u16) -> Vec<Client> {
         Client { key: "android-studio", name: "Android Studio", wire: Wire::Http(http_port),
             path: android_studio_config(home),
             note: Some(format!("Android Studio ▸ Settings ▸ Tools ▸ AI ▸ MCP Servers (JSON view); keep `drengr mcp --http{}` running",
-                if http_port == 7878 { String::new() } else { format!(" --port {http_port}") })),
+                if http_port == DEFAULT_HTTP_PORT { String::new() } else { format!(" --port {http_port}") })),
             abs_cmd: false, cli_fallback: None },
         Client { key: "antigravity", name: "Antigravity", wire: Wire::Stdio,
             path: Some(home.join(".gemini/config/mcp_config.json")), note: None,
@@ -333,10 +337,10 @@ mod tests {
     #[test]
     fn matrix_has_all_hosts_and_transports() {
         let home = PathBuf::from("/home/x"); // nonexistent → Xcode agent dir absent
-        let clients = all(&home, 7878);
+        let clients = all(&home, DEFAULT_HTTP_PORT);
         assert_eq!(clients.len(), 8);
         let as_ = clients.iter().find(|c| c.key == "android-studio").unwrap();
-        assert!(matches!(as_.wire, Wire::Http(7878)));
+        assert!(matches!(as_.wire, Wire::Http(DEFAULT_HTTP_PORT)));
         // Cursor / Claude Code / VS Code are now auto-write (global config).
         for k in [
             "cursor",
@@ -385,7 +389,7 @@ mod tests {
 
     #[test]
     fn vscode_uses_servers_key_with_type() {
-        let c = all(&PathBuf::from("/h"), 7878)
+        let c = all(&PathBuf::from("/h"), DEFAULT_HTTP_PORT)
             .into_iter()
             .find(|c| c.key == "vscode")
             .unwrap();
@@ -396,7 +400,7 @@ mod tests {
 
     #[test]
     fn stdio_json_includes_android_home_when_present() {
-        let c = all(&PathBuf::from("/h"), 7878)
+        let c = all(&PathBuf::from("/h"), DEFAULT_HTTP_PORT)
             .into_iter()
             .find(|c| c.key == "claude-desktop")
             .unwrap();

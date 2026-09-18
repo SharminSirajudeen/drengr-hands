@@ -50,7 +50,7 @@ async fn run_inner() -> (&'static str, Option<String>) {
     // Idempotent front door: if Drengr is already wired into a client, offer a
     // quick menu instead of re-walking the whole wizard.
     let home = dirs::home_dir().unwrap_or_default();
-    let already: Vec<&'static str> = clients::all(&home, 7878)
+    let already: Vec<&'static str> = clients::all(&home, clients::DEFAULT_HTTP_PORT)
         .iter()
         .filter(|c| c.has_drengr())
         .map(|c| c.name)
@@ -298,7 +298,7 @@ fn wire_clients() -> Vec<String> {
     eprintln!("  ─────────────────────────────────────────────");
     let home = dirs::home_dir().unwrap_or_default();
     let android_home = crate::transport::android_sdk::sdk_root_env();
-    let catalog = clients::all(&home, 7878);
+    let catalog = clients::all(&home, clients::DEFAULT_HTTP_PORT);
 
     let labels: Vec<String> = catalog.iter().map(client_label).collect();
     let preselect: Vec<bool> = catalog.iter().map(|c| c.installed()).collect();
@@ -603,7 +603,7 @@ mod tests {
         let http = client(
             "Android Studio",
             Some(PathBuf::from("/nope/x.json")),
-            Wire::Http(7878),
+            Wire::Http(clients::DEFAULT_HTTP_PORT),
         );
         assert!(client_label(&http).contains("[HTTP]"));
     }

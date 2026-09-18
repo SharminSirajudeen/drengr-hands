@@ -62,7 +62,7 @@ enum Commands {
         http: bool,
 
         /// Port for --http (binds 127.0.0.1 only).
-        #[arg(long, default_value = "7878")]
+        #[arg(long, default_value_t = drengr_hands::mcp::clients::DEFAULT_HTTP_PORT)]
         port: u16,
     },
 
@@ -147,7 +147,7 @@ enum Commands {
     /// the calling agent is the brain. The frame is saved to `~/.drengr/cli/`
     /// so you can read it as a file instead of pulling base64 through context.
     Look {
-        /// Output format: clean | text | grid | json (default: annotated image + elements)
+        /// Output format: image (default) | clean | text | grid
         #[arg(long)]
         format: Option<String>,
 
@@ -165,11 +165,8 @@ enum Commands {
     /// Act on the screen. No MCP, no key. `drengr query capabilities` lists every
     /// action with its required parameters and platform support.
     Do {
-        /// tap | type | clear_and_type | swipe | scroll | long_press | draw_path | key |
-        /// back | home | wait | launch | terminate_app | install | uninstall | open_url |
-        /// deep_link | spotlight_search | set_location | clear_location | set_appearance |
-        /// set_orientation | grant_permission | simulate_biometric | pasteboard_set |
-        /// pasteboard_get | unlock | alert_accept | alert_dismiss | alert_text | app_state
+        /// tap | type | swipe | scroll | key | back | home | wait | launch | …
+        /// `drengr query capabilities` lists all of them with their parameters.
         action: String,
 
         /// Tap a numbered element from the last `look`
@@ -331,7 +328,7 @@ enum Commands {
 
         /// Port for HTTP-based clients (android-studio) — must match the port
         /// you pass to `drengr mcp --http --port <p>`.
-        #[arg(long, default_value = "7878")]
+        #[arg(long, default_value_t = drengr_hands::mcp::clients::DEFAULT_HTTP_PORT)]
         port: u16,
     },
 
@@ -426,24 +423,15 @@ enum KeyAction {
 }
 
 /// Find MCP client config files that contain a "drengr" server entry.
+///
+/// Derived from the client catalog rather than a second list. The hardcoded copy
+/// this replaces knew four of the eight hosts, so `uninstall` left Drengr wired
+/// into VS Code, Android Studio, Antigravity and Xcode, each pointing at a binary
+/// it had just deleted. A host added to the catalog is now covered here for free.
 pub(crate) fn find_mcp_configs(home: &std::path::Path) -> Vec<std::path::PathBuf> {
-    let candidates = vec![
-        // Claude Desktop
-        if cfg!(target_os = "macos") {
-            home.join("Library/Application Support/Claude/claude_desktop_config.json")
-        } else {
-            home.join(".config/claude/claude_desktop_config.json")
-        },
-        // Claude Code (global)
-        home.join(".claude.json"),
-        // Cursor (global)
-        home.join(".cursor/mcp.json"),
-        // Windsurf
-        home.join(".codeium/windsurf/mcp_config.json"),
-    ];
-
-    candidates
+    drengr_hands::mcp::clients::all(home, drengr_hands::mcp::clients::DEFAULT_HTTP_PORT)
         .into_iter()
+        .filter_map(|c| c.path)
         .filter(|p| {
             if let Ok(content) = std::fs::read_to_string(p) {
                 content.contains("\"drengr\"")
