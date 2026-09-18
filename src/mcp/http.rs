@@ -78,7 +78,7 @@ async fn route(
 
     let body = match read_body_capped(req).await {
         Ok(b) => b,
-        Err(resp) => return Ok(resp),
+        Err(resp) => return Ok(*resp),
     };
     let request: JsonRpcRequest = match serde_json::from_slice(&body) {
         Ok(r) => r,
@@ -100,7 +100,9 @@ async fn route(
     }
 }
 
-async fn read_body_capped(req: Request<Incoming>) -> Result<Bytes, Response<Full<Bytes>>> {
+// The error is a whole HTTP response, which makes every Ok carry its size too.
+// Boxed so the common path stays small. Clippy 1.98 fails the build without it.
+async fn read_body_capped(req: Request<Incoming>) -> Result<Bytes, Box<Response<Full<Bytes>>>> {
     if let Some(len) = req
         .headers()
         .get(hyper::header::CONTENT_LENGTH)
@@ -108,7 +110,10 @@ async fn read_body_capped(req: Request<Incoming>) -> Result<Bytes, Response<Full
         .and_then(|s| s.parse::<usize>().ok())
     {
         if len > MAX_BODY_BYTES {
-            return Err(plain(StatusCode::PAYLOAD_TOO_LARGE, "body too large"));
+            return Err(Box::new(plain(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "body too large",
+            )));
         }
     }
     // Limited enforces the cap DURING collection — a chunked body with no
@@ -120,9 +125,12 @@ async fn read_body_capped(req: Request<Incoming>) -> Result<Bytes, Response<Full
             if e.downcast_ref::<http_body_util::LengthLimitError>()
                 .is_some() =>
         {
-            Err(plain(StatusCode::PAYLOAD_TOO_LARGE, "body too large"))
+            Err(Box::new(plain(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "body too large",
+            )))
         }
-        Err(_) => Err(plain(StatusCode::BAD_REQUEST, "body read failed")),
+        Err(_) => Err(Box::new(plain(StatusCode::BAD_REQUEST, "body read failed"))),
     }
 }
 

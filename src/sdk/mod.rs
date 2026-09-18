@@ -128,10 +128,6 @@ impl ScreenStore {
         self.screens.back().map(|s| s.activity.as_str())
     }
 
-    pub fn screen_count(&self) -> usize {
-        self.screens.len()
-    }
-
     pub fn clear(&mut self) {
         self.screens.clear();
     }
@@ -515,7 +511,6 @@ mod tests {
             timestamp_ms: 0,
         });
 
-        assert_eq!(store.screen_count(), 2);
         assert_eq!(store.current_activity(), Some("C"));
     }
 

@@ -68,11 +68,6 @@ impl ImageOptimizer {
         (is_duplicate, self.duplicate_count)
     }
 
-    /// Number of consecutive duplicate images seen.
-    pub fn consecutive_duplicates(&self) -> u32 {
-        self.duplicate_count
-    }
-
     /// Reset duplicate tracking (e.g. after navigation).
     pub fn reset(&mut self) {
         self.last_hash = None;
@@ -199,26 +194,17 @@ mod tests {
     }
 
     #[test]
-    fn test_consecutive_duplicates_count() {
-        let mut opt = ImageOptimizer::new();
-        opt.check_duplicate(b"same");
-        opt.check_duplicate(b"same");
-        opt.check_duplicate(b"same");
-        let (is_dup, count) = opt.check_duplicate(b"same");
-        assert!(is_dup);
-        assert_eq!(count, 3);
-        assert_eq!(opt.consecutive_duplicates(), 3);
-    }
-
-    #[test]
     fn test_duplicate_resets_on_different() {
         let mut opt = ImageOptimizer::new();
         opt.check_duplicate(b"same");
-        opt.check_duplicate(b"same");
-        assert_eq!(opt.consecutive_duplicates(), 1);
-
-        opt.check_duplicate(b"different");
-        assert_eq!(opt.consecutive_duplicates(), 0);
+        assert!(
+            opt.check_duplicate(b"same").0,
+            "the same frame twice is a duplicate"
+        );
+        assert!(
+            !opt.check_duplicate(b"different").0,
+            "a different frame must clear the streak, not extend it"
+        );
     }
 
     #[test]
@@ -333,11 +319,9 @@ mod tests {
     fn test_manual_reset() {
         let mut opt = ImageOptimizer::new();
         opt.check_duplicate(b"image");
-        opt.check_duplicate(b"image");
-        assert_eq!(opt.consecutive_duplicates(), 1);
+        assert!(opt.check_duplicate(b"image").0);
 
         opt.reset();
-        assert_eq!(opt.consecutive_duplicates(), 0);
 
         let (is_dup, _) = opt.check_duplicate(b"image");
         assert!(!is_dup); // After reset, even same image is not a duplicate

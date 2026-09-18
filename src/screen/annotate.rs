@@ -76,11 +76,6 @@ impl ScreenAnnotator {
         }
     }
 
-    pub fn with_max_elements(mut self, max: usize) -> Self {
-        self.max_elements = max;
-        self
-    }
-
     /// Annotate by auto-numbering 1..N. Use for one-shot callers and tests;
     /// OODA should use `annotate_with_ids` to keep numbers stable across steps.
     pub fn annotate(
@@ -332,18 +327,6 @@ impl ScreenAnnotator {
                 })
                 .collect(),
         })
-    }
-
-    /// Resolve a tap target written by an earlier `look` process.
-    pub fn tap_coordinates_from_disk_in(
-        drengr_dir: &std::path::Path,
-        element_number: usize,
-    ) -> Option<(i32, i32)> {
-        Self::persisted_observation_in(drengr_dir)?
-            .elements
-            .iter()
-            .find(|e| e.number == element_number)
-            .map(|e| (e.tap_x, e.tap_y))
     }
 
     /// The last observation, but only when it demonstrably describes the device we
@@ -949,10 +932,6 @@ mod tests {
             back.device, "",
             "no provenance to report, and it must not invent any"
         );
-        assert_eq!(
-            ScreenAnnotator::tap_coordinates_from_disk_in(&dir, 1),
-            Some((2, 3))
-        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1026,24 +1005,6 @@ mod tests {
 
         // Login (interactive) + Label (read-only with text) = 2; empty excluded
         assert_eq!(result.elements.len(), 2);
-    }
-
-    #[test]
-    fn test_annotate_respects_max_elements() {
-        let png = make_test_png(200, 2000);
-        let elements: Vec<UiElement> = (0..100)
-            .map(|i| {
-                make_test_element(
-                    &format!("Btn{}", i),
-                    Bounds::new(0, i * 20, 100, i * 20 + 18),
-                )
-            })
-            .collect();
-
-        let annotator = ScreenAnnotator::new().with_max_elements(5);
-        let result = annotator.annotate(&png, &elements, (0, 0)).unwrap();
-
-        assert_eq!(result.elements.len(), 5);
     }
 
     #[test]

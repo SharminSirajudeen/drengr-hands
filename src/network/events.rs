@@ -43,16 +43,6 @@ impl NetworkEvent {
     pub fn is_error(&self) -> Option<bool> {
         self.status.map(|s| s >= 400)
     }
-
-    /// Whether this is a client error (4xx). `None` when no status was captured.
-    pub fn is_client_error(&self) -> Option<bool> {
-        self.status.map(|s| (400..500).contains(&s))
-    }
-
-    /// Whether this is a server error (5xx). `None` when no status was captured.
-    pub fn is_server_error(&self) -> Option<bool> {
-        self.status.map(|s| s >= 500)
-    }
 }
 
 /// The capture-honesty guard.
@@ -242,13 +232,9 @@ mod tests {
 
         e.status = Some(404);
         assert_eq!(e.is_error(), Some(true));
-        assert_eq!(e.is_client_error(), Some(true));
-        assert_eq!(e.is_server_error(), Some(false));
 
         e.status = Some(500);
         assert_eq!(e.is_error(), Some(true));
-        assert_eq!(e.is_client_error(), Some(false));
-        assert_eq!(e.is_server_error(), Some(true));
     }
 
     /// The point of the whole change: a status nobody captured answers "I do not
@@ -259,8 +245,6 @@ mod tests {
         let mut e = sample_event();
         e.status = None;
         assert_eq!(e.is_error(), None);
-        assert_eq!(e.is_client_error(), None);
-        assert_eq!(e.is_server_error(), None);
 
         // And it must not be mistaken for a real status on the wire either.
         let json = serde_json::to_string(&e).unwrap();

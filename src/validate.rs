@@ -47,27 +47,6 @@ const SHELL_CHARS: &[char] = &[
     ';', '\'', '"', '`', '$', '|', '&', '>', '<', '\\', '{', '}', '!', '#',
 ];
 
-/// Strip control characters and enforce max length on text input.
-/// Returns sanitized string or an error message.
-pub fn sanitize_text_input(text: &str, max_len: usize) -> Result<String, String> {
-    if text.is_empty() {
-        return Err("Input text is empty".to_string());
-    }
-    if text.len() > max_len {
-        return Err(format!(
-            "Input text too long: {} bytes (max {})",
-            text.len(),
-            max_len
-        ));
-    }
-    // Strip ASCII control characters (0x00-0x1F, 0x7F) except tab, newline, carriage return
-    let sanitized: String = text
-        .chars()
-        .filter(|c| !c.is_control() || *c == '\t' || *c == '\n' || *c == '\r')
-        .collect();
-    Ok(sanitized)
-}
-
 /// Validate a file path: must exist, have the correct extension, and contain no traversal.
 /// Returns the canonical (resolved) path or an error.
 pub fn validate_file_path(path: &str, allowed_ext: &str) -> Result<String, String> {
@@ -230,24 +209,6 @@ const BLOCKED_URL_SCHEMES: &[&str] = &[
     "x-apple-systempreferences", // macOS: opens System Preferences panes
 ];
 
-/// Sanitize URL filter pattern.
-/// Rejects control characters and enforces max length of 500 chars.
-pub fn sanitize_url_filter(pattern: &str) -> Result<String, String> {
-    if pattern.is_empty() {
-        return Err("URL filter is empty".to_string());
-    }
-    if pattern.len() > 500 {
-        return Err(format!(
-            "URL filter too long: {} chars (max 500)",
-            pattern.len()
-        ));
-    }
-    if pattern.chars().any(|c| c.is_control()) {
-        return Err("URL filter contains control characters".to_string());
-    }
-    Ok(pattern.to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,51 +265,6 @@ mod tests {
     }
 
     // --- Text input sanitization ---
-
-    #[test]
-    fn test_sanitize_text_valid() {
-        assert_eq!(
-            sanitize_text_input("hello world", 100).unwrap(),
-            "hello world"
-        );
-        assert_eq!(
-            sanitize_text_input("user@test.com", 100).unwrap(),
-            "user@test.com"
-        );
-    }
-
-    #[test]
-    fn test_sanitize_text_strips_control_chars() {
-        let input = "hello\x00world\x01";
-        let result = sanitize_text_input(input, 100).unwrap();
-        assert_eq!(result, "helloworld");
-    }
-
-    #[test]
-    fn test_sanitize_text_preserves_whitespace() {
-        let input = "hello\tworld\nfoo";
-        let result = sanitize_text_input(input, 100).unwrap();
-        assert_eq!(result, "hello\tworld\nfoo");
-    }
-
-    #[test]
-    fn test_sanitize_text_rejects_empty() {
-        assert!(sanitize_text_input("", 100).is_err());
-    }
-
-    #[test]
-    fn test_sanitize_text_rejects_oversized() {
-        let long = "a".repeat(10_001);
-        assert!(sanitize_text_input(&long, 10_000).is_err());
-    }
-
-    #[test]
-    fn test_sanitize_text_allows_unicode() {
-        assert_eq!(
-            sanitize_text_input("日本語テスト", 100).unwrap(),
-            "日本語テスト"
-        );
-    }
 
     // --- File path validation ---
 
@@ -459,27 +375,6 @@ mod tests {
     }
 
     // --- URL filter sanitization ---
-
-    #[test]
-    fn test_url_filter_valid() {
-        assert_eq!(sanitize_url_filter("/api/login").unwrap(), "/api/login");
-        assert_eq!(sanitize_url_filter("checkout").unwrap(), "checkout");
-    }
-
-    #[test]
-    fn test_url_filter_rejects_control_chars() {
-        assert!(sanitize_url_filter("api\x00login").is_err());
-    }
-
-    #[test]
-    fn test_url_filter_rejects_too_long() {
-        assert!(sanitize_url_filter(&"a".repeat(501)).is_err());
-    }
-
-    #[test]
-    fn test_url_filter_rejects_empty() {
-        assert!(sanitize_url_filter("").is_err());
-    }
 
     // --- validate_url ---
 
