@@ -675,7 +675,7 @@ async fn main() -> anyhow::Result<()> {
                 a.insert("element_text".into(), v.into());
             }
             if let Some(v) = key {
-                a.insert("key".into(), v.into());
+                a.insert("keycode".into(), v.into());
             }
             if let Some(v) = package {
                 a.insert("package".into(), v.into());

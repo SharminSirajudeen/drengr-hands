@@ -75,21 +75,23 @@ impl McpHandlers {
         let nav_ctx = self.nav_context_for(&activity).await;
 
         if format == "text" {
+            // Render the ids the annotator actually assigned. Numbering the
+            // scene 1..N here instead printed numbers that `drengr do
+            // --element n` could never resolve: the registry hands out stable
+            // ids seeded from the previous process, so they start wherever that
+            // one left off, and those are the ids persisted as tap targets.
+            let numbered: Vec<(usize, &crate::screen::ui_element::UiElement)> = annotated
+                .elements
+                .iter()
+                .map(|e| (e.number, &e.element))
+                .collect();
             let scene = TextSceneBuilder::new(screen_width, screen_height)
                 .with_activity(&activity)
                 .with_scrollable(scrollable)
-                .build_capped(
-                    &elements,
-                    args.get("max_elements")
-                        .and_then(|v| v.as_u64())
-                        .map(|v| v as usize)
-                        .unwrap_or_else(crate::screen::ui_element::max_addressable),
-                );
+                .build_with_ids(&numbered);
 
             // No `elements` array here on purpose. It carried the same data as
             // text_scene, so 'text' cost more than 'image' rather than less.
-            // text_scene numbers elements identically (both enumerate the same
-            // slice then filter on is_relevant), so element=n still resolves.
             let mut response = json!({
                 "screen": {
                     "activity": activity,

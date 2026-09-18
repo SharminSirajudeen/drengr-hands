@@ -959,10 +959,16 @@ impl McpHandlers {
 
         if format == "text" {
             let scrollable = elements.iter().any(|e| e.scrollable);
+            // Same seam as handle_look: the scene must carry the annotator's ids,
+            // not a fresh 1..N, or the numbers it prints resolve to nothing.
+            let numbered: Vec<(usize, &crate::screen::ui_element::UiElement)> = annotated
+                .as_ref()
+                .map(|a| a.elements.iter().map(|e| (e.number, &e.element)).collect())
+                .unwrap_or_default();
             let scene = TextSceneBuilder::new(screen_width, screen_height)
                 .with_activity(&activity)
                 .with_scrollable(scrollable)
-                .build(&elements);
+                .build_with_ids(&numbered);
 
             let mut response = json!({
                 "action": action_desc,

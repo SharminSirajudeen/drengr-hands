@@ -148,11 +148,53 @@ mod tests {
             .split("Action rejected at step")
             .nth(1)
             .expect("the rejection arm still logs a warning");
-        let arm = &arm[..arm.len().min(600)];
+        let arm: String = arm.chars().take(600).collect();
         let needle = format!("history{}push", ".");
         assert!(
             arm.contains(needle.as_str()),
             "the rejection arm logs but does not record the step, so the next prompt cannot differ:\n{arm}"
         );
+    }
+
+    /// A transport that cannot perform an action must say so. `press_key` on iOS
+    /// used to log a warning and return Ok, so the layer above reported
+    /// "Pressed key 'enter'" while nothing happened — an agent then has to
+    /// explain a screen that never changed. Found by driving the CLI by hand.
+    #[test]
+    fn an_unsupported_key_fails_instead_of_reporting_success() {
+        let src =
+            std::fs::read_to_string(src_root().join("transport/simctl.rs")).expect("simctl.rs");
+        let body = src
+            .split(&format!("async fn {}", "press_key"))
+            .nth(1)
+            .expect("press_key exists");
+        let body: String = body.chars().take(2500).collect();
+        let fallback = body
+            .rsplit("other =>")
+            .next()
+            .expect("press_key has a catch-all arm")
+            .to_string();
+        let fallback: String = fallback.chars().take(300).collect();
+        assert!(
+            fallback.contains("Err("),
+            "the catch-all arm of press_key returns success for a key it cannot send:\n{fallback}"
+        );
+    }
+
+    /// The text scene must print the ids the annotator assigned. Numbering it
+    /// 1..N instead printed numbers `drengr do --element n` could never resolve:
+    /// the registry hands out stable ids seeded from the previous process, and
+    /// those are what get persisted as tap targets. Found by driving the CLI.
+    #[test]
+    fn the_text_scene_prints_the_ids_that_can_be_tapped() {
+        let positional = format!("build{}(&elements", "_capped");
+        let plain = format!("{}(&elements)", ".build");
+        for f in ["mcp/handlers/look.rs", "mcp/handlers/do_action.rs"] {
+            let src = std::fs::read_to_string(src_root().join(f)).expect(f);
+            assert!(
+                !src.contains(positional.as_str()) && !src.contains(plain.as_str()),
+                "{f} numbers its text scene positionally; it must render the annotator's ids"
+            );
+        }
     }
 }

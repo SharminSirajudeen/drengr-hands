@@ -807,14 +807,15 @@ impl DeviceTransport for SimctlTransport {
                     .await
                     .map_err(|e| anyhow!("{}", e))
             }
-            24 | 25 => {
-                tracing::warn!("press_key({}): volume buttons not supported by drengr-runner", keycode);
-                Ok(())
-            }
-            other => {
-                tracing::warn!("Unmapped keycode {} for iOS", other);
-                Ok(())
-            }
+            // A key the runner cannot send must fail. Returning Ok here reported
+            // "Pressed key 'enter'" to the caller while nothing happened, which
+            // leaves an agent to explain a screen that never changed.
+            24 | 25 => Err(anyhow!(
+                "press_key({keycode}): volume buttons are not supported on iOS"
+            )),
+            other => Err(anyhow!(
+                "press_key({other}): iOS supports only 'home' and 'back'. For text keys, type into the focused field instead."
+            )),
         }
     }
 
