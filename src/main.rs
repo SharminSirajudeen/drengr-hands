@@ -47,6 +47,10 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+// `Do` carries every action's parameters, so it dwarfs the other variants. This
+// enum is parsed once at startup and dropped; the size gap costs nothing, and
+// boxing it would fight clap's derive for no gain.
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Start MCP server on stdio (primary mode)
     #[command(visible_alias = "start")]
