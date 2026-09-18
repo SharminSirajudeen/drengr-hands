@@ -197,4 +197,58 @@ mod tests {
             );
         }
     }
+
+    /// Every parameter the drengr_do schema documents must be reachable from the
+    /// CLI. Twelve were not: wait, install, open_url, deep_link, set_location,
+    /// set_appearance, grant_permission and set_orientation were undrivable from
+    /// a shell while `drengr --help` promised exactly that. Found by hand.
+    #[test]
+    fn every_documented_do_parameter_is_reachable_from_the_cli() {
+        let tools = std::fs::read_to_string(src_root().join("mcp/tools.rs")).expect("tools.rs");
+        let start = tools
+            .find(&format!("\"name\": \"drengr{}\"", "_do"))
+            .expect("drengr_do");
+        let schema: String = tools[start..].chars().take(9000).collect();
+        let mut documented: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        // Property entries sit at one fixed indent inside "properties"; matching
+        // any `"x": {` also swept up inputSchema, properties and annotations.
+        for line in schema.lines() {
+            let indent = line.len() - line.trim_start().len();
+            if indent != 16 {
+                continue;
+            }
+            let l = line.trim();
+            if l.ends_with("\": {") && l.starts_with('"') {
+                if let Some(n) = l.trim_start_matches('"').split('"').next() {
+                    documented.insert(n.to_string());
+                }
+            }
+        }
+        assert!(
+            documented.len() > 15,
+            "the schema scrape found only {} properties; the shape changed and this \
+             guard is no longer reading it",
+            documented.len()
+        );
+        documented.remove("action");
+        // query-only properties share the schema block's tail.
+        documented.remove("question");
+        documented.remove("headless");
+
+        let main = std::fs::read_to_string(src_root().join("main.rs")).expect("main.rs");
+        let do_arm = main
+            .split("Commands::Do {")
+            .nth(1)
+            .expect("the Do arm exists");
+        let do_arm: String = do_arm.chars().take(6000).collect();
+
+        let missing: Vec<&String> = documented
+            .iter()
+            .filter(|p| !do_arm.contains(&format!("\"{}\".into()", p)))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "documented drengr_do parameters the CLI cannot send: {missing:?}"
+        );
+    }
 }

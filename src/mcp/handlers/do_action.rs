@@ -366,14 +366,16 @@ impl McpHandlers {
                     Some(p) => p,
                     None => return ToolResult::error("install requires 'apk' parameter"),
                 };
-                // Validate the app path to prevent path traversal
-                if let Err(e) = crate::validate::validate_file_path(apk_path, ".apk") {
-                    // Fallback: also accept .ipa and .app for iOS
-                    if crate::validate::validate_file_path(apk_path, ".ipa").is_err()
-                        && crate::validate::validate_file_path(apk_path, ".app").is_err()
-                    {
-                        return ToolResult::error(format!("Invalid app path: {}", e));
-                    }
+                // Validate against the extension the path actually carries. Trying
+                // .apk first and reporting its error meant a missing .app bundle was
+                // reported as the wrong file extension, which sends the user after a
+                // problem they do not have.
+                let ext = [".apk", ".ipa", ".app"]
+                    .into_iter()
+                    .find(|e| apk_path.ends_with(e))
+                    .unwrap_or(".apk");
+                if let Err(e) = crate::validate::validate_file_path(apk_path, ext) {
+                    return ToolResult::error(format!("Invalid app path: {}", e));
                 }
                 if let Err(e) = transport.install_app(apk_path).await {
                     return ToolResult::error(format!("Install failed: {}", e));

@@ -180,9 +180,14 @@ enum Commands {
         app: Option<String>,
     },
 
-    /// Act on the screen: tap/type/swipe/long_press/key/back/home. No MCP, no key.
+    /// Act on the screen. No MCP, no key. `drengr query capabilities` lists every
+    /// action with its required parameters and platform support.
     Do {
-        /// tap | type | swipe | long_press | key | back | home | scroll
+        /// tap | type | clear_and_type | swipe | scroll | long_press | draw_path | key |
+        /// back | home | wait | launch | terminate_app | install | uninstall | open_url |
+        /// deep_link | spotlight_search | set_location | clear_location | set_appearance |
+        /// set_orientation | grant_permission | simulate_biometric | pasteboard_set |
+        /// pasteboard_get | unlock | alert_accept | alert_dismiss | alert_text | app_state
         action: String,
 
         /// Tap a numbered element from the last `look`
@@ -232,6 +237,54 @@ enum Commands {
         /// App package for action=launch/install (e.g. com.example.app)
         #[arg(long, visible_alias = "app")]
         package: Option<String>,
+
+        /// Wait condition for action=wait: 'stable' | 'element:TEXT' | 'network:idle'
+        #[arg(long)]
+        until: Option<String>,
+
+        /// Max wait in seconds for --until (default 5)
+        #[arg(long)]
+        timeout: Option<u64>,
+
+        /// Auto-scroll to find the element before tapping
+        #[arg(long)]
+        scroll_to_find: bool,
+
+        /// Max scroll attempts with --scroll-to-find (default 12)
+        #[arg(long)]
+        max_scroll: Option<u64>,
+
+        /// Path to an APK / .app bundle for action=install
+        #[arg(long)]
+        apk: Option<String>,
+
+        /// URL for action=open_url (http/https) or action=deep_link (app scheme)
+        #[arg(long)]
+        url: Option<String>,
+
+        /// Latitude for action=set_location
+        #[arg(long)]
+        lat: Option<f64>,
+
+        /// Longitude for action=set_location
+        #[arg(long)]
+        lng: Option<f64>,
+
+        /// Dark mode for action=set_appearance (omit for light)
+        #[arg(long)]
+        dark: bool,
+
+        /// Successful match for action=simulate_biometric (omit for a failed match)
+        #[arg(long)]
+        matches: bool,
+
+        /// Service for action=grant_permission (location, photos, camera, microphone, contacts, all)
+        #[arg(long)]
+        permission: Option<String>,
+
+        /// Target orientation for action=set_orientation
+        #[arg(long)]
+        orientation: Option<String>,
 
         /// Target device id (default: auto-detected)
         #[arg(long)]
@@ -639,11 +692,23 @@ async fn main() -> anyhow::Result<()> {
             element_text,
             key,
             package,
+            until,
+            timeout,
+            scroll_to_find,
+            max_scroll,
+            apk,
+            url,
+            lat,
+            lng,
+            dark,
+            matches,
+            permission,
+            orientation,
             device,
         } => {
             init_logging();
             let mut a = serde_json::Map::new();
-            a.insert("action".into(), action.into());
+            a.insert("action".into(), action.clone().into());
             if let Some(v) = element {
                 a.insert("element".into(), v.into());
             }
@@ -679,6 +744,44 @@ async fn main() -> anyhow::Result<()> {
             }
             if let Some(v) = package {
                 a.insert("package".into(), v.into());
+            }
+            if let Some(v) = until {
+                a.insert("until".into(), v.into());
+            }
+            if let Some(v) = timeout {
+                a.insert("timeout".into(), v.into());
+            }
+            if scroll_to_find {
+                a.insert("scroll_to_find".into(), true.into());
+            }
+            if let Some(v) = max_scroll {
+                a.insert("max_scroll".into(), v.into());
+            }
+            if let Some(v) = apk {
+                a.insert("apk".into(), v.into());
+            }
+            if let Some(v) = url {
+                a.insert("url".into(), v.into());
+            }
+            if let Some(v) = lat {
+                a.insert("lat".into(), v.into());
+            }
+            if let Some(v) = lng {
+                a.insert("lng".into(), v.into());
+            }
+            // A flag has no "unset", so absence means light — which is exactly the
+            // schema's default. Sent unconditionally or light is unrequestable.
+            if action == "set_appearance" {
+                a.insert("dark".into(), dark.into());
+            }
+            if action == "simulate_biometric" {
+                a.insert("matches".into(), matches.into());
+            }
+            if let Some(v) = permission {
+                a.insert("permission".into(), v.into());
+            }
+            if let Some(v) = orientation {
+                a.insert("orientation".into(), v.into());
             }
             if let Some(v) = device {
                 a.insert("device".into(), v.into());
