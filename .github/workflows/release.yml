@@ -72,9 +72,12 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-          # A Cargo.toml edit that is not a version bump must do nothing.
-          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "::notice::${TAG} already exists. Nothing to release."
+          # A Cargo.toml edit that is not a version bump must do nothing. The
+          # question is whether the RELEASE exists, not the tag: this job creates
+          # the tag before anything is built, so a build that fails leaves a tag
+          # behind and testing for one made that version permanently unreleasable.
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            echo "::notice::${TAG} is already released. Nothing to do."
             echo "release=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -83,10 +86,14 @@ jobs:
           # Created through the refs API, not `git push`. Pushing an annotated tag
           # object from a runner is rejected here with "fatal error in commit_refs",
           # reproducibly. Creating the ref directly is the supported path and needs
-          # no extra credential.
-          gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
-            -f ref="refs/tags/${TAG}" -f sha="${GITHUB_SHA}" >/dev/null
-          echo "::notice::Created ${TAG} at ${GITHUB_SHA}."
+          # no extra credential. Skipped when a previous attempt already made it.
+          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::notice::${TAG} already tagged by an earlier attempt; reusing it."
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${TAG}" -f sha="${GITHUB_SHA}" >/dev/null
+            echo "::notice::Created ${TAG} at ${GITHUB_SHA}."
+          fi
 
   preflight:
     needs: resolve
