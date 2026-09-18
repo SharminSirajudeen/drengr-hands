@@ -37,6 +37,22 @@ impl Client {
     }
 
     /// The `{"mcpServers": {"drengr": …}}` snippet for this host.
+    /// The snippet to print for a host we have no entry for. Built here rather
+    /// than by reaching into a named vendor's catalog entry, which coupled
+    /// "generic" to whatever Claude Desktop happened to need.
+    pub fn generic_stdio_json(android_home: Option<&str>) -> String {
+        Client {
+            key: "generic",
+            name: "MCP",
+            wire: Wire::Stdio,
+            path: None,
+            note: None,
+            abs_cmd: false,
+            cli_fallback: None,
+        }
+        .config_json(android_home)
+    }
+
     pub fn config_json(&self, android_home: Option<&str>) -> String {
         match self.wire {
             Wire::Http(port) => format!(
