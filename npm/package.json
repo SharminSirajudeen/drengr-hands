@@ -35,7 +35,7 @@
     "drengr"
   ],
   "author": "Drengr <hey@drengr.dev>",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "MIT",
   "os": [
     "linux",
     "darwin"

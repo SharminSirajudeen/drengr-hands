@@ -147,23 +147,12 @@ jobs:
           RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=/drengr --remap-path-prefix=$HOME/.cargo/registry/src=/deps --remap-path-prefix=src/=/m/"
         run: cross build --release --target ${{ matrix.target }}
 
-      - name: Build iOS helper (macOS only)
-        if: contains(matrix.target, 'apple')
-        run: |
-          swiftc -O helpers/ios-helper/main.swift -o target/${{ matrix.target }}/release/drengr-ios-helper
-          strip target/${{ matrix.target }}/release/drengr-ios-helper
-          echo "iOS helper built: $(ls -lh target/${{ matrix.target }}/release/drengr-ios-helper)"
-
       - name: Package tarball
         run: |
           VERSION="${{ needs.resolve.outputs.tag }}"
           ARCHIVE="drengr-${VERSION}-${{ matrix.target }}.tar.gz"
           cd target/${{ matrix.target }}/release
-          if [ -f drengr-ios-helper ]; then
-            tar czf "../../../${ARCHIVE}" drengr drengr-ios-helper
-          else
-            tar czf "../../../${ARCHIVE}" drengr
-          fi
+          tar czf "../../../${ARCHIVE}" drengr
           cd ../../..
           if command -v shasum >/dev/null 2>&1; then
             shasum -a 256 "${ARCHIVE}" > "${ARCHIVE}.sha256"

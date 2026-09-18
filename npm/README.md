@@ -116,5 +116,5 @@ Full documentation and setup guide at [drengr.dev/getting-started](https://dreng
 
 ## License
 
-Proprietary — © 2026 Drengr. All rights reserved.
+MIT — source at https://github.com/SharminSirajudeen/drengr-hands
 See [LICENSE](LICENSE) for details.

@@ -2,7 +2,7 @@
   "name": "drengr-linux-x64",
   "version": "0.10.13",
   "description": "Drengr binary for linux x64. Installed automatically as an optional dependency of drengr.",
-  "license": "LicenseRef-Proprietary",
+  "license": "MIT",
   "os": [
     "linux"
   ],
@@ -10,8 +10,7 @@
     "x64"
   ],
   "files": [
-    "drengr",
-    "drengr-ios-helper"
+    "drengr"
   ],
   "repository": {
     "type": "git",

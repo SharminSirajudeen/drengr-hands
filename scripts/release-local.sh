@@ -95,15 +95,11 @@ for t in "${LINUX[@]}"; do
 done
 
 echo "▶ iOS helper (per-arch)"
-swiftc -O                          helpers/ios-helper/main.swift -o target/aarch64-apple-darwin/release/drengr-ios-helper && strip target/aarch64-apple-darwin/release/drengr-ios-helper
-swiftc -O -target x86_64-apple-macos11 helpers/ios-helper/main.swift -o target/x86_64-apple-darwin/release/drengr-ios-helper  && strip target/x86_64-apple-darwin/release/drengr-ios-helper
 
-# ── Package tarballs (drengr + ios-helper for mac) + checksums ───────────
 echo "▶ packaging"
 for t in "${APPLE[@]}" "${LINUX[@]}"; do
   A="drengr-${VERSION}-${t}.tar.gz"
   ( cd "target/$t/release" \
-    && if [ -f drengr-ios-helper ]; then tar czf "$WT/$A" drengr drengr-ios-helper; else tar czf "$WT/$A" drengr; fi )
   shasum -a 256 "$A" > "$A.sha256"
 done
 
