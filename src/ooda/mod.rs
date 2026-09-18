@@ -61,7 +61,7 @@ pub struct OodaResult {
     pub history: Vec<OodaStepSummary>,
 }
 
-/// Outcomes that warrant a redacted on-disk diagnostic bundle (tier 2).
+/// Outcomes that warrant a redacted on-disk diagnostic bundle.
 /// Anything else is a clean exit and the user shouldn't see noise.
 fn outcome_warrants_bundle(outcome: RunOutcomeKind) -> bool {
     matches!(
@@ -74,8 +74,9 @@ fn outcome_warrants_bundle(outcome: RunOutcomeKind) -> bool {
     )
 }
 
-/// Emit tier-1 telemetry and (on failure outcomes) write a redacted tier-2
-/// bundle. Called exactly once per run from each exit point in `run_ooda`.
+/// Tally the run's outcome and, on a failure outcome, write a redacted
+/// diagnostic bundle. Called exactly once per run from each exit point in
+/// `run_ooda`. Both stay on this machine.
 fn finalize_run(
     builder: RunOutcomeBuilder,
     detector: &progress::ProgressDetector,
@@ -153,7 +154,7 @@ pub async fn run_ooda(
     let mut outcome_builder = RunOutcomeBuilder::new(
         transport.platform_kind(),
         llm.model(),
-        llm.provider().telemetry_tag(),
+        llm.provider().as_str(),
     );
     let mut last_activity = String::from("unknown");
     let progress_check_disabled = std::env::var("DRENGR_DISABLE_PROGRESS_CHECK")
@@ -299,8 +300,9 @@ pub async fn run_ooda(
                     image::ImageReader::new(std::io::Cursor::new(&screenshot)).with_guessed_format()
                 {
                     if let Ok((w, h)) = reader.into_dimensions() {
-                        if w > 4096 || h > 4096 {
-                            anyhow::bail!("Screenshot too large ({w}x{h}). Max 4096x4096.");
+                        let max = crate::transport::MAX_SCREENSHOT_DIM;
+                        if w > max || h > max {
+                            anyhow::bail!("Screenshot too large ({w}x{h}). Max {max}x{max}.");
                         }
                     }
                 }
@@ -312,7 +314,7 @@ pub async fn run_ooda(
                 elements: annotator.elements_for_ids(&numbered),
                 // Text-only step: nothing was drawn, but the frame is still what
                 // this observation saw.
-                source_frame: screenshot.clone(),
+                source_frame: screenshot,
             }
         };
         let annotate_ms = annotate_start.elapsed().as_millis();

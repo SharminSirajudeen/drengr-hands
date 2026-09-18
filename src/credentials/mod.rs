@@ -172,8 +172,7 @@ impl MemoryStore {
     }
 
     /// Force every subsequent op to return [`CredentialError::Unavailable`].
-    /// Used by `migration_aborts_cleanly_on_keychain_failure`.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn set_unavailable(&self, msg: &str) {
         *self.fail_with.lock().unwrap() = Some(msg.to_string());
     }
@@ -185,14 +184,12 @@ impl MemoryStore {
         Ok(())
     }
 
-    /// Test helper: count entries currently held.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.inner.lock().unwrap().len()
     }
 
-    /// Test helper: complement to [`Self::len`].
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.inner.lock().unwrap().is_empty()
     }

@@ -499,11 +499,7 @@ fn finish(
         eprintln!("  Device:      {} ({})", d.model, d.os);
     }
     if let Some(b) = brain {
-        eprintln!(
-            "  Model:       {} / {}",
-            b.provider().telemetry_tag(),
-            b.model()
-        );
+        eprintln!("  Model:       {} / {}", b.provider().as_str(), b.model());
     }
     eprintln!();
     eprintln!("  Try it:");

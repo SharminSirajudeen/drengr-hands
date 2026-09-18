@@ -485,8 +485,8 @@ pub async fn run_server_with_config(config: McpConfig) -> anyhow::Result<()> {
         }
     }
 
-    // HTTP transport: same handlers, different wire. Tier-change push
-    // notifications don't exist here (no server-initiated stream).
+    // HTTP transport: same handlers, different wire. No server-initiated
+    // stream, so nothing here can push a notification to the client.
     if let Some(port) = config.http_port {
         return http::run_http_server(std::sync::Arc::new(handlers), port).await;
     }

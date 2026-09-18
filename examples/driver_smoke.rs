@@ -40,8 +40,13 @@ async fn main() {
     match runner.client.status().await {
         Ok(s) => println!(
             "    ok={} product={} version={} ios_major={} screen={}x{}@{}",
-            s.ok, s.product, s.version, s.ios_major,
-            s.screen.width, s.screen.height, s.screen.scale
+            s.ok,
+            s.product,
+            s.version,
+            s.ios_major,
+            s.screen.width,
+            s.screen.height,
+            s.screen.scale
         ),
         Err(e) => eprintln!("    status failed: {e}"),
     }
@@ -57,7 +62,11 @@ async fn main() {
         Ok(o) => println!(
             "    screenshot_b64 len={} tree_hint={}",
             o.screenshot_b64.len(),
-            if o.tree_hint.is_some() { "present" } else { "null" }
+            if o.tree_hint.is_some() {
+                "present"
+            } else {
+                "null"
+            }
         ),
         Err(e) => eprintln!("    observe failed: {e}"),
     }

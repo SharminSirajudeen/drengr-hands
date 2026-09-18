@@ -1,7 +1,6 @@
-//! Drengr Runner driver — replaces src/wda/ for v0.6.0.
-//! Vision-first, framework-blind. 3-route HTTP API to the Swift XCTest target
-//! at drengr-runner/. See runbooks/v060-drengr-runner-2026-05-14.md and
-//! feedback_drengr_touch_is_a_touch.md.
+//! Drengr Runner driver — vision-first and framework-blind: a 3-route HTTP API
+//! to the Swift XCTest target under `drengr-runner/`, which drives the iOS
+//! simulator from inside it.
 
 pub mod bootstrap;
 pub mod client;

@@ -101,6 +101,7 @@ pub fn pixel_diff_percentage(
 
     let (w1, h1) = img1.dimensions();
     let (w2, h2) = img2.dimensions();
+    let (img1, img2) = (img1.into_rgba8(), img2.into_rgba8());
 
     // Use smaller dimensions if they differ
     let w = w1.min(w2);
@@ -114,13 +115,15 @@ pub fn pixel_diff_percentage(
     let mut changed = 0u32;
     let threshold = 30u8; // Per-channel difference threshold
 
-    for y in 0..h {
-        for x in 0..w {
-            let p1 = img1.get_pixel(x, y);
-            let p2 = img2.get_pixel(x, y);
-            let dr = (p1[0] as i16 - p2[0] as i16).unsigned_abs() as u8;
-            let dg = (p1[1] as i16 - p2[1] as i16).unsigned_abs() as u8;
-            let db = (p1[2] as i16 - p2[2] as i16).unsigned_abs() as u8;
+    let (buf1, buf2) = (img1.as_raw(), img2.as_raw());
+    let (stride1, stride2) = (w1 as usize * 4, w2 as usize * 4);
+    for y in 0..h as usize {
+        let row1 = &buf1[y * stride1..y * stride1 + w as usize * 4];
+        let row2 = &buf2[y * stride2..y * stride2 + w as usize * 4];
+        for (p1, p2) in row1.chunks_exact(4).zip(row2.chunks_exact(4)) {
+            let dr = p1[0].abs_diff(p2[0]);
+            let dg = p1[1].abs_diff(p2[1]);
+            let db = p1[2].abs_diff(p2[2]);
             if dr > threshold || dg > threshold || db > threshold {
                 changed += 1;
             }
@@ -254,6 +257,26 @@ mod tests {
         assert_eq!(pct, 100.0);
         assert_eq!(changed, 1);
         assert_eq!(total, 1);
+    }
+
+    /// Frames of different sizes are compared over their common top-left
+    /// rectangle, so each row must be indexed by its OWN image's stride. The
+    /// black pixel sits at (2,0) in the 3-wide frame, outside the 2x2 overlap,
+    /// so nothing differs and the answer is 0%. Walk the wide frame at the
+    /// narrow stride instead and row 1 starts on that black pixel, which reads
+    /// back as one changed pixel out of four.
+    #[test]
+    fn pixel_diff_walks_each_image_by_its_own_stride() {
+        let white = image::Rgba([255, 255, 255, 255]);
+        let mut wide = image::RgbaImage::from_pixel(3, 2, white);
+        wide.put_pixel(2, 0, image::Rgba([0, 0, 0, 255]));
+        let narrow = image::RgbaImage::from_pixel(2, 2, white);
+
+        let (pct, changed, total) =
+            pixel_diff_percentage(&png_bytes(wide), &png_bytes(narrow)).unwrap();
+        assert_eq!(total, 4, "overlap is min(3,2) x min(2,2)");
+        assert_eq!(changed, 0, "the only dark pixel lies outside the overlap");
+        assert_eq!(pct, 0.0);
     }
 
     fn png_bytes(img: image::RgbaImage) -> Vec<u8> {

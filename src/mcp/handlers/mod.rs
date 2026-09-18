@@ -413,9 +413,8 @@ impl McpHandlers {
             if let Some(t) = transports.get(id) {
                 return Some((id.to_string(), t.clone()));
             }
-            // Prefix match (e.g., "emulator" matches "emulator-5554")
             for (key, t) in transports.iter() {
-                if key.starts_with(id) || id.starts_with(key) {
+                if device_id_prefix_matches(key, id) {
                     return Some((key.clone(), t.clone()));
                 }
             }
@@ -582,7 +581,11 @@ impl McpHandlers {
         // Scroll down (swipe up) to find element
         for _ in 0..max_attempts {
             let (from, to) = crate::transport::swipe_coords("up", width, height);
-            if transport.swipe(from, to, 300).await.is_err() {
+            if transport
+                .swipe(from, to, crate::transport::DEFAULT_SWIPE_DURATION_MS)
+                .await
+                .is_err()
+            {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -594,7 +597,11 @@ impl McpHandlers {
         // Scroll back up then past start
         for _ in 0..(max_attempts * 2) {
             let (from, to) = crate::transport::swipe_coords("down", width, height);
-            if transport.swipe(from, to, 300).await.is_err() {
+            if transport
+                .swipe(from, to, crate::transport::DEFAULT_SWIPE_DURATION_MS)
+                .await
+                .is_err()
+            {
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -663,6 +670,13 @@ impl McpHandlers {
 }
 
 /// Extract package name from activity string (e.g. "com.app/.LoginActivity" → "com.app").
+/// A requested device id matches a candidate when either is a prefix of the
+/// other, so `emulator` reaches `emulator-5554` and a full udid reaches itself.
+/// Callers try an exact match first; this decides the rest.
+pub(super) fn device_id_prefix_matches(candidate: &str, requested: &str) -> bool {
+    candidate.starts_with(requested) || requested.starts_with(candidate)
+}
+
 fn extract_package(activity: &str) -> &str {
     activity.split('/').next().unwrap_or(activity)
 }
@@ -814,8 +828,9 @@ pub(super) fn oversized(screenshot: &[u8]) -> Option<String> {
         .with_guessed_format()
         .ok()?;
     let (w, h) = reader.into_dimensions().ok()?;
-    (w > 4096 || h > 4096).then(|| {
-        format!("Screenshot too large ({w}x{h}). Max 4096x4096. Try reducing device resolution.")
+    let max = crate::transport::MAX_SCREENSHOT_DIM;
+    (w > max || h > max).then(|| {
+        format!("Screenshot too large ({w}x{h}). Max {max}x{max}. Try reducing device resolution.")
     })
 }
 

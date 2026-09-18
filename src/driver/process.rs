@@ -15,6 +15,8 @@ pub struct LaunchedRunner {
     /// because it blocks for the lifetime of the xctrunner inside the sim;
     /// killing it propagates SIGTERM down to the xctrunner.
     pub(crate) child: Option<tokio::process::Child>,
+    /// Never read: held so the UDID stays claimed for the runner's lifetime
+    /// and is released by `Drop` at the same moment the process goes away.
     #[allow(dead_code)]
     pub(crate) lock: UdidLock,
 }

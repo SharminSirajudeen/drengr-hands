@@ -1,5 +1,107 @@
 use super::*;
 
+/// Poll until the requested condition holds or the timeout expires. Every branch
+/// returns a description rather than an error: a wait that timed out still waited.
+async fn do_wait(transport: &dyn DeviceTransport, args: &Value) -> String {
+    let until = args.get("until").and_then(|u| u.as_str());
+    let timeout_secs = args.get("timeout").and_then(|t| t.as_u64()).unwrap_or(5);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+
+    match until {
+        Some("stable") => {
+            let mut last_frame: Vec<u8> = Vec::new();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if std::time::Instant::now() > deadline {
+                    break;
+                }
+                let s = transport.screenshot().await.unwrap_or_default();
+                if !last_frame.is_empty()
+                    && crate::screen::optimize::frames_settled(&last_frame, &s)
+                {
+                    break;
+                }
+                last_frame = s;
+            }
+            "Waited for screen to stabilize".to_string()
+        }
+        Some(cond) if cond.starts_with("network:idle") => {
+            let _ = transport.clear_http_logs().await;
+            let mut total_calls = 0u32;
+            let mut idle_polls = 0u32;
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if std::time::Instant::now() > deadline {
+                    break;
+                }
+                let calls = transport.capture_http_logs().await.unwrap_or_default();
+                if calls.is_empty() {
+                    idle_polls += 1;
+                    if idle_polls >= 2 {
+                        break; // 1s of network silence
+                    }
+                } else {
+                    total_calls += calls.len() as u32;
+                    idle_polls = 0;
+                    let _ = transport.clear_http_logs().await;
+                }
+            }
+            format!("Network idle ({} calls observed)", total_calls)
+        }
+        Some(cond) if cond.starts_with("element:") => {
+            let target = &cond["element:".len()..];
+            let target_lower = target.to_lowercase();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if std::time::Instant::now() > deadline {
+                    break;
+                }
+                let elems = transport.ui_tree().await.unwrap_or_default();
+                if elems.iter().any(|e| e.matches_text(&target_lower)) {
+                    break;
+                }
+            }
+            format!("Waited for element '{}'", target)
+        }
+        _ => {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            "Waited 1s".to_string()
+        }
+    }
+}
+
+/// Swipe toward one edge until the screen stops changing or the swipe budget is
+/// spent, and report how many swipes it took. Byte-identical re-encoded PNGs are
+/// the strictest possible test, which is why frames_settled exists: a blinking
+/// cursor kept this loop swiping a list that had stopped moving.
+async fn scroll_to_edge(
+    transport: &dyn DeviceTransport,
+    direction: &str,
+    screen_width: u32,
+    screen_height: u32,
+) -> u32 {
+    let mut last_frame: Vec<u8> = Vec::new();
+    let mut swipe_count = 0u32;
+    for _ in 0..crate::transport::MAX_SCROLL_SWIPES {
+        let (from, to) = crate::transport::swipe_coords(direction, screen_width, screen_height);
+        if transport
+            .swipe(from, to, crate::transport::DEFAULT_SWIPE_DURATION_MS)
+            .await
+            .is_err()
+        {
+            break;
+        }
+        swipe_count += 1;
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let s = transport.screenshot().await.unwrap_or_default();
+        if !last_frame.is_empty() && crate::screen::optimize::frames_settled(&last_frame, &s) {
+            break;
+        }
+        last_frame = s;
+    }
+    swipe_count
+}
+
 impl McpHandlers {
     /// Resolve element `n` to a tap point: this process's last look, or what a
     /// previous CLI process left on disk. Every action arm goes through here.
@@ -23,6 +125,142 @@ impl McpHandlers {
             .map(|e| (e.tap_x, e.tap_y))
     }
 
+    /// The soft keyboard overlays the bottom of the screen, so a tap aimed under
+    /// it lands on a key instead of the target. Dismiss first, then tap.
+    async fn tap_clear_of_keyboard(
+        &self,
+        transport: &dyn DeviceTransport,
+        x: i32,
+        y: i32,
+        screen_height: u32,
+    ) -> Result<(), String> {
+        if let Ok(true) = transport.is_keyboard_visible().await {
+            let keyboard_top = (screen_height as f64 * 0.6) as i32;
+            if y > keyboard_top {
+                let _ = transport.dismiss_keyboard().await;
+                tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            }
+        }
+        transport
+            .tap(x, y)
+            .await
+            .map_err(|e| format!("Tap failed: {}", e))
+    }
+
+    /// Tap one of four ways, in priority order: normalized coordinates, visible
+    /// text, an element number, or an element number found by scrolling.
+    async fn do_tap(
+        &self,
+        transport: &dyn DeviceTransport,
+        args: &Value,
+        element_num: Option<usize>,
+        screen_width: u32,
+        screen_height: u32,
+    ) -> Result<String, String> {
+        // Framework-blind coordinate tap (the north-star primitive): normalized
+        // 0-1 → native tap space. The only way to act on apps with no
+        // accessibility tree — Flutter, games, in-app web, canvas.
+        if let (Some(nx), Some(ny)) = (
+            args.get("x").and_then(|v| v.as_f64()),
+            args.get("y").and_then(|v| v.as_f64()),
+        ) {
+            let (px, py) = norm_to_px(nx, ny, screen_width, screen_height);
+            transport
+                .tap(px, py)
+                .await
+                .map_err(|e| format!("Tap failed: {}", e))?;
+            return Ok(format!(
+                "Tapped ({:.3}, {:.3})",
+                nx.clamp(0.0, 1.0),
+                ny.clamp(0.0, 1.0)
+            ));
+        }
+
+        let max_scroll = args
+            .get("max_scroll")
+            .and_then(|m| m.as_u64())
+            .unwrap_or(12) as usize;
+
+        if let Some(target) = args.get("element_text").and_then(|t| t.as_str()) {
+            let found = self
+                .scroll_to_find_element(
+                    transport,
+                    target,
+                    max_scroll,
+                    (screen_width, screen_height),
+                )
+                .await;
+            let (x, y) = found.ok_or_else(|| format!(
+                "Element '{}' not found after {} scroll attempts. Retry with a higher max_scroll (e.g. max_scroll=30), or scroll_to_top first if you may have scrolled past it.",
+                target, max_scroll
+            ))?;
+            self.tap_clear_of_keyboard(transport, x, y, screen_height)
+                .await?;
+            return Ok(format!("Tapped '{}'", target));
+        }
+
+        let n = element_num.ok_or("tap requires 'element' or 'element_text' parameter")?;
+        if let Some((x, y)) = self.resolve_element(transport, n).await {
+            self.tap_clear_of_keyboard(transport, x, y, screen_height)
+                .await?;
+            return Ok(format!("Tapped #{}", n));
+        }
+
+        let scroll_to_find = args
+            .get("scroll_to_find")
+            .and_then(|s| s.as_bool())
+            .unwrap_or(false);
+        if !scroll_to_find {
+            return Err(format!(
+                "Element #{} not found. Use scroll_to_find=true to search off-screen.",
+                n
+            ));
+        }
+
+        let label = {
+            let annotated = self.last_annotated.lock().await;
+            annotated.as_ref().and_then(|a| {
+                a.elements
+                    .iter()
+                    .find(|e| e.number == n)
+                    .map(|e| e.element.display_label().to_string())
+            })
+        }
+        .ok_or_else(|| format!("Element #{} not found", n))?;
+
+        let (x, y) = self
+            .scroll_to_find_element(transport, &label, max_scroll, (screen_width, screen_height))
+            .await
+            .ok_or_else(|| format!("Element '{}' not found after scrolling", label))?;
+        transport
+            .tap(x, y)
+            .await
+            .map_err(|e| format!("Tap failed: {}", e))?;
+        Ok(format!("Scrolled to and tapped '{}'", label))
+    }
+
+    /// Record this package as the session's app and open a session for it.
+    async fn start_session_for(&self, transport: &dyn DeviceTransport, pkg: &str) {
+        *self.app_package.lock().await = Some(pkg.to_string());
+        let device_id = transport
+            .device_info()
+            .await
+            .map(|d| d.id)
+            .unwrap_or_else(|_| "unknown".to_string());
+        self.start_session(pkg, &device_id).await;
+    }
+
+    /// Tap an element so the field under it takes focus before text is sent.
+    /// A tap that resolves to nothing is not an error here: the caller may be
+    /// typing into whatever already holds focus.
+    async fn focus_element(&self, transport: &dyn DeviceTransport, element_num: Option<usize>) {
+        let Some(n) = element_num else { return };
+        if let Some((x, y)) = self.resolve_element(transport, n).await {
+            let _ = transport.tap(x, y).await;
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        }
+    }
+
     /// Handle drengr_do — execute action + return situation report.
     pub(super) async fn handle_do(&self, args: Value) -> ToolResult {
         let transport = match self.ensure_or_autoprovision(&args).await {
@@ -34,8 +272,6 @@ impl McpHandlers {
             Some(a) => a,
             None => return ToolResult::error("Missing required parameter: action"),
         };
-
-        // Daily usage limit moved to dispatch() — covers all tools, not just do.
 
         let element_num = args
             .get("element")
@@ -55,170 +291,48 @@ impl McpHandlers {
             .await
             .unwrap_or(crate::transport::DEFAULT_SCREEN_SIZE);
 
-        // Capture pre-action screenshot hash for swipe stuck detection
         // The frame BEFORE markers were drawn on it. Hashing the annotated JPEG
         // and comparing it to a later raw PNG compared two encodings of two
         // different images, so it never matched and every swipe reported that the
         // screen had changed.
-        let pre_frame: Option<Vec<u8>> = if action == "swipe" {
-            let guard = self.last_annotated.lock().await;
-            guard.as_ref().map(|a| a.source_frame.clone())
+        let pre_frame: Option<Arc<AnnotatedScreen>> = if action == "swipe" {
+            self.last_annotated.lock().await.clone()
         } else {
             None
         };
 
-        // Clear HTTP logs before action so we only capture fresh network calls
         let _ = transport.clear_http_logs().await;
 
         // Opens the window this step will record. Everything the sink receives
         // from here on belongs to this action, whichever source saw it.
         let step_started_ms = crate::session::now_ms();
 
-        // Execute the action
         let action_desc = match action {
-            "tap" => {
-                let scroll_to_find = args
-                    .get("scroll_to_find")
-                    .and_then(|s| s.as_bool())
-                    .unwrap_or(false);
-                let element_text = args.get("element_text").and_then(|t| t.as_str());
-                let max_scroll = args
-                    .get("max_scroll")
-                    .and_then(|m| m.as_u64())
-                    .unwrap_or(12) as usize;
-
-                // Framework-blind coordinate tap (the north-star primitive):
-                // normalized 0-1 → native tap space. The only way to act on apps
-                // with no accessibility tree — Flutter, games, in-app web, canvas.
-                if let (Some(nx), Some(ny)) = (
-                    args.get("x").and_then(|v| v.as_f64()),
-                    args.get("y").and_then(|v| v.as_f64()),
-                ) {
-                    let (px, py) = norm_to_px(nx, ny, screen_width, screen_height);
-                    if let Err(e) = transport.tap(px, py).await {
-                        return ToolResult::error(format!("Tap failed: {}", e));
-                    }
-                    format!(
-                        "Tapped ({:.3}, {:.3})",
-                        nx.clamp(0.0, 1.0),
-                        ny.clamp(0.0, 1.0)
-                    )
-                } else if let Some(target) = element_text {
-                    // Find by text — scroll if needed
-                    match self.scroll_to_find_element(
-                        transport.as_ref(), target, max_scroll, (screen_width, screen_height)
-                    ).await {
-                        Some((x, y)) => {
-                            // Auto-dismiss keyboard if covering target
-                            if let Ok(true) = transport.is_keyboard_visible().await {
-                                let keyboard_top = (screen_height as f64 * 0.6) as i32;
-                                if y > keyboard_top {
-                                    let _ = transport.dismiss_keyboard().await;
-                                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                                }
-                            }
-                            if let Err(e) = transport.tap(x, y).await {
-                                return ToolResult::error(format!("Tap failed: {}", e));
-                            }
-                            format!("Tapped '{}'", target)
-                        }
-                        None => return ToolResult::error(
-                            format!("Element '{}' not found after {} scroll attempts. Retry with a higher max_scroll (e.g. max_scroll=30), or scroll_to_top first if you may have scrolled past it.", target, max_scroll)
-                        ),
-                    }
-                } else {
-                    // Find by element number (existing behavior)
-                    let n = match element_num {
-                        Some(n) => n,
-                        None => {
-                            return ToolResult::error(
-                                "tap requires 'element' or 'element_text' parameter",
-                            )
-                        }
-                    };
-                    let coords = self.resolve_element(transport.as_ref(), n).await;
-                    match coords {
-                        Some((x, y)) => {
-                            // Auto-dismiss keyboard if covering target
-                            if let Ok(true) = transport.is_keyboard_visible().await {
-                                let keyboard_top = (screen_height as f64 * 0.6) as i32;
-                                if y > keyboard_top {
-                                    let _ = transport.dismiss_keyboard().await;
-                                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                                }
-                            }
-                            if let Err(e) = transport.tap(x, y).await {
-                                return ToolResult::error(format!("Tap failed: {}", e));
-                            }
-                            format!("Tapped #{}", n)
-                        }
-                        None => {
-                            if scroll_to_find {
-                                let label: Option<String> = {
-                                    let annotated_guard = self.last_annotated.lock().await;
-                                    annotated_guard.as_ref().and_then(|a| {
-                                        a.elements
-                                            .iter()
-                                            .find(|e| e.number == n)
-                                            .map(|e| e.element.display_label().to_string())
-                                    })
-                                };
-                                if let Some(label) = label {
-                                    match self
-                                        .scroll_to_find_element(
-                                            transport.as_ref(),
-                                            &label,
-                                            max_scroll,
-                                            (screen_width, screen_height),
-                                        )
-                                        .await
-                                    {
-                                        Some((x, y)) => {
-                                            if let Err(e) = transport.tap(x, y).await {
-                                                return ToolResult::error(format!(
-                                                    "Tap failed: {}",
-                                                    e
-                                                ));
-                                            }
-                                            format!("Scrolled to and tapped '{}'", label)
-                                        }
-                                        None => {
-                                            return ToolResult::error(format!(
-                                                "Element '{}' not found after scrolling",
-                                                label
-                                            ))
-                                        }
-                                    }
-                                } else {
-                                    return ToolResult::error(format!("Element #{} not found", n));
-                                }
-                            } else {
-                                return ToolResult::error(format!("Element #{} not found. Use scroll_to_find=true to search off-screen.", n));
-                            }
-                        }
-                    }
-                }
-            }
+            "tap" => match self
+                .do_tap(
+                    transport.as_ref(),
+                    &args,
+                    element_num,
+                    screen_width,
+                    screen_height,
+                )
+                .await
+            {
+                Ok(desc) => desc,
+                Err(e) => return ToolResult::error(e),
+            },
             "type" => {
                 let input_text = match text {
                     Some(t) => t,
                     None => return ToolResult::error("type requires 'text' parameter"),
                 };
-                if let Some(n) = element_num {
-                    let coords = self.resolve_element(transport.as_ref(), n).await;
-                    if let Some((x, y)) = coords {
-                        let _ = transport.tap(x, y).await;
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                    }
-                }
+                self.focus_element(transport.as_ref(), element_num).await;
                 if let Err(e) = transport.type_text(input_text).await {
                     return ToolResult::error(format!("Type failed: {}", e));
                 }
                 format!("Typed \"{}\"", input_text)
             }
             "swipe" => {
-                // Coordinate swipe (normalized 0-1 endpoints) when given; else
-                // fall back to a direction-based swipe through screen center.
                 if let (Some(nx), Some(ny), Some(nx2), Some(ny2)) = (
                     args.get("x").and_then(|v| v.as_f64()),
                     args.get("y").and_then(|v| v.as_f64()),
@@ -229,7 +343,10 @@ impl McpHandlers {
                     let (tx, ty) = norm_to_px(nx2, ny2, screen_width, screen_height);
                     let from = crate::screen::Point { x: fx, y: fy };
                     let to = crate::screen::Point { x: tx, y: ty };
-                    if let Err(e) = transport.swipe(from, to, 300).await {
+                    if let Err(e) = transport
+                        .swipe(from, to, crate::transport::DEFAULT_SWIPE_DURATION_MS)
+                        .await
+                    {
                         return ToolResult::error(format!("Swipe failed: {}", e));
                     }
                     format!("Swiped ({:.2},{:.2})→({:.2},{:.2})", nx, ny, nx2, ny2)
@@ -243,7 +360,10 @@ impl McpHandlers {
                         };
                     let (from, to) =
                         crate::transport::swipe_coords(dir, screen_width, screen_height);
-                    if let Err(e) = transport.swipe(from, to, 300).await {
+                    if let Err(e) = transport
+                        .swipe(from, to, crate::transport::DEFAULT_SWIPE_DURATION_MS)
+                        .await
+                    {
                         return ToolResult::error(format!("Swipe failed: {}", e));
                     }
                     format!("Swiped {}", dir)
@@ -257,7 +377,6 @@ impl McpHandlers {
                     .and_then(|v| v.as_u64())
                     .map(|v| v.clamp(50, 10_000) as u32)
                     .unwrap_or(1000);
-                // Coordinate long-press (normalized 0-1) when given; else element.
                 if let (Some(nx), Some(ny)) = (
                     args.get("x").and_then(|v| v.as_f64()),
                     args.get("y").and_then(|v| v.as_f64()),
@@ -313,15 +432,7 @@ impl McpHandlers {
                 if let Err(e) = transport.launch_app(pkg).await {
                     return ToolResult::error(format!("Launch failed: {}", e));
                 }
-                *self.app_package.lock().await = Some(pkg.to_string());
-                // Start a new recording session
-                let device_id = transport
-                    .device_info()
-                    .await
-                    .map(|d| d.id)
-                    .unwrap_or_else(|_| "unknown".to_string());
-                self.start_session(pkg, &device_id).await;
-                // Poll for target activity to appear (up to 3s)
+                self.start_session_for(transport.as_ref(), pkg).await;
                 for _ in 0..6 {
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     if let Ok(activity) = transport.current_activity().await {
@@ -384,13 +495,7 @@ impl McpHandlers {
                     if let Err(e) = transport.launch_app(pkg).await {
                         return ToolResult::error(format!("Installed but launch failed: {}", e));
                     }
-                    *self.app_package.lock().await = Some(pkg.to_string());
-                    let device_id = transport
-                        .device_info()
-                        .await
-                        .map(|d| d.id)
-                        .unwrap_or_else(|_| "unknown".to_string());
-                    self.start_session(pkg, &device_id).await;
+                    self.start_session_for(transport.as_ref(), pkg).await;
                     format!("Installed and launched {}", pkg)
                 } else {
                     format!("Installed {}", apk_path)
@@ -401,13 +506,7 @@ impl McpHandlers {
                     Some(t) => t,
                     None => return ToolResult::error("clear_and_type requires 'text' parameter"),
                 };
-                if let Some(n) = element_num {
-                    let coords = self.resolve_element(transport.as_ref(), n).await;
-                    if let Some((x, y)) = coords {
-                        let _ = transport.tap(x, y).await;
-                        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                    }
-                }
+                self.focus_element(transport.as_ref(), element_num).await;
                 if let Err(e) = transport.clear_focused_field().await {
                     return ToolResult::error(format!("Clear failed: {}", e));
                 }
@@ -417,124 +516,15 @@ impl McpHandlers {
                 }
                 format!("Cleared and typed \"{}\"", input_text)
             }
-            "scroll_to_bottom" => {
-                let max_swipes = 10;
-                let mut last_frame: Vec<u8> = Vec::new();
-                let mut swipe_count = 0u32;
-                for _ in 0..max_swipes {
-                    let (from, to) =
-                        crate::transport::swipe_coords("up", screen_width, screen_height);
-                    if transport.swipe(from, to, 300).await.is_err() {
-                        break;
-                    }
-                    swipe_count += 1;
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    let s = transport.screenshot().await.unwrap_or_default();
-                    // Byte-identical re-encoded PNGs are the strictest possible
-                    // test, which is why frames_settled exists: a blinking cursor
-                    // kept these loops swiping a list that had stopped moving.
-                    if !last_frame.is_empty()
-                        && crate::screen::optimize::frames_settled(&last_frame, &s)
-                    {
-                        break;
-                    }
-                    last_frame = s;
-                }
-                format!("Scrolled to bottom ({} swipes)", swipe_count)
-            }
-            "scroll_to_top" => {
-                let max_swipes = 10;
-                let mut last_frame: Vec<u8> = Vec::new();
-                let mut swipe_count = 0u32;
-                for _ in 0..max_swipes {
-                    let (from, to) =
-                        crate::transport::swipe_coords("down", screen_width, screen_height);
-                    if transport.swipe(from, to, 300).await.is_err() {
-                        break;
-                    }
-                    swipe_count += 1;
-                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    let s = transport.screenshot().await.unwrap_or_default();
-                    // Byte-identical re-encoded PNGs are the strictest possible
-                    // test, which is why frames_settled exists: a blinking cursor
-                    // kept these loops swiping a list that had stopped moving.
-                    if !last_frame.is_empty()
-                        && crate::screen::optimize::frames_settled(&last_frame, &s)
-                    {
-                        break;
-                    }
-                    last_frame = s;
-                }
-                format!("Scrolled to top ({} swipes)", swipe_count)
-            }
-            "wait" => {
-                let until = args.get("until").and_then(|u| u.as_str());
-                let timeout_secs = args.get("timeout").and_then(|t| t.as_u64()).unwrap_or(5);
-                let deadline =
-                    std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
-
-                match until {
-                    Some("stable") => {
-                        let mut last_frame: Vec<u8> = Vec::new();
-                        loop {
-                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                            if std::time::Instant::now() > deadline {
-                                break;
-                            }
-                            let s = transport.screenshot().await.unwrap_or_default();
-                            if !last_frame.is_empty()
-                                && crate::screen::optimize::frames_settled(&last_frame, &s)
-                            {
-                                break;
-                            }
-                            last_frame = s;
-                        }
-                        "Waited for screen to stabilize".to_string()
-                    }
-                    Some(cond) if cond.starts_with("network:idle") => {
-                        let _ = transport.clear_http_logs().await;
-                        let mut total_calls = 0u32;
-                        let mut idle_polls = 0u32;
-                        loop {
-                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                            if std::time::Instant::now() > deadline {
-                                break;
-                            }
-                            let calls = transport.capture_http_logs().await.unwrap_or_default();
-                            if calls.is_empty() {
-                                idle_polls += 1;
-                                if idle_polls >= 2 {
-                                    break; // 1s of network silence
-                                }
-                            } else {
-                                total_calls += calls.len() as u32;
-                                idle_polls = 0;
-                                let _ = transport.clear_http_logs().await;
-                            }
-                        }
-                        format!("Network idle ({} calls observed)", total_calls)
-                    }
-                    Some(cond) if cond.starts_with("element:") => {
-                        let target = &cond["element:".len()..];
-                        let target_lower = target.to_lowercase();
-                        loop {
-                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                            if std::time::Instant::now() > deadline {
-                                break;
-                            }
-                            let elems = transport.ui_tree().await.unwrap_or_default();
-                            if elems.iter().any(|e| e.matches_text(&target_lower)) {
-                                break;
-                            }
-                        }
-                        format!("Waited for element '{}'", target)
-                    }
-                    _ => {
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        "Waited 1s".to_string()
-                    }
-                }
-            }
+            "scroll_to_bottom" => format!(
+                "Scrolled to bottom ({} swipes)",
+                scroll_to_edge(transport.as_ref(), "up", screen_width, screen_height).await
+            ),
+            "scroll_to_top" => format!(
+                "Scrolled to top ({} swipes)",
+                scroll_to_edge(transport.as_ref(), "down", screen_width, screen_height).await
+            ),
+            "wait" => do_wait(transport.as_ref(), &args).await,
             "draw_path" => {
                 let pts = match parse_points(args.get("points")) {
                     Some(p) if p.len() >= 2 => p,
@@ -604,15 +594,19 @@ impl McpHandlers {
                 }
                 format!("Terminated {}", pkg)
             }
-            "open_url" => {
+            "open_url" | "deep_link" => {
                 let url = match args.get("url").and_then(|u| u.as_str()) {
                     Some(u) => u,
-                    None => return ToolResult::error("open_url requires 'url' parameter"),
+                    None => return ToolResult::error(format!("{action} requires 'url' parameter")),
                 };
                 if let Err(e) = transport.open_url(url).await {
-                    return ToolResult::error(format!("open_url failed: {}", e));
+                    return ToolResult::error(format!("{action} failed: {}", e));
                 }
-                format!("Opened {}", url)
+                if action == "deep_link" {
+                    format!("Opened deep link {}", url)
+                } else {
+                    format!("Opened {}", url)
+                }
             }
             "spotlight_search" => {
                 let query = match args.get("query").and_then(|q| q.as_str()).or(text) {
@@ -654,16 +648,6 @@ impl McpHandlers {
                 Ok(apps) => format!("Installed apps ({}): {}", apps.len(), apps.join(", ")),
                 Err(e) => return ToolResult::error(format!("list_installed_apps failed: {}", e)),
             },
-            "deep_link" => {
-                let url = match args.get("url").and_then(|u| u.as_str()) {
-                    Some(u) => u,
-                    None => return ToolResult::error("deep_link requires 'url' parameter"),
-                };
-                if let Err(e) = transport.open_url(url).await {
-                    return ToolResult::error(format!("deep_link failed: {}", e));
-                }
-                format!("Opened deep link {}", url)
-            }
             "uninstall" => {
                 let pkg = match package {
                     Some(p) => p,
@@ -839,7 +823,7 @@ impl McpHandlers {
 
         // Logcat sees a strict subset — no request headers, no request body — so
         // these go into the shared sink tagged as such, beside whatever the SDK
-        // and the MITM proxy pushed while the action ran.
+        // pushed while the action ran.
         let logcat_calls = transport.capture_http_logs().await.unwrap_or_default();
         let logcat_count = logcat_calls.len();
         self.network_history
@@ -853,7 +837,6 @@ impl McpHandlers {
             Some(crate::network::sink::summarize(&recent[start..]))
         };
 
-        // Re-observe for situation report (one runner round-trip on iOS).
         let (post_screenshot, elements, tree_error) = match transport.observe().await {
             Ok(o) => (o.frame, o.elements, o.tree_error),
             Err(e) => (Vec::new(), Vec::new(), Some(e.to_string())),
@@ -880,14 +863,13 @@ impl McpHandlers {
             if let Some(ref pre) = pre_frame {
                 // frames_settled tolerates a blinking cursor, which exact bytes do
                 // not: it is the comparator written for "is this the same screen".
-                if !crate::screen::optimize::frames_settled(pre, &post_screenshot) {
+                if !crate::screen::optimize::frames_settled(&pre.source_frame, &post_screenshot) {
                     report.stuck = false;
                     report.screen_changed = true;
                 }
             }
         }
 
-        // Annotate post-action screen for element number consistency
         let annotated: Option<Arc<AnnotatedScreen>> = {
             if post_screenshot.is_empty() || oversized(&post_screenshot).is_some() {
                 // Same dimension cap look applies: this path decodes a full frame
@@ -924,7 +906,6 @@ impl McpHandlers {
             .map(|a| annotated_elements_to_json(&a.elements))
             .unwrap_or_default();
 
-        // Record step in active session
         {
             let mut session_guard = self.session.lock().await;
             if let Some(ref mut session) = *session_guard {
@@ -952,7 +933,6 @@ impl McpHandlers {
                     self.network_history.since(step_started_ms),
                     shot,
                 );
-                // Auto-save after each step (fire-and-forget)
                 let _ = session.save();
             }
         }
@@ -1009,7 +989,6 @@ impl McpHandlers {
         } else {
             match annotated {
                 Some(a) => {
-                    // Gate: Pro+ or trial gets annotated JPEG, Free gets plain PNG
                     use crate::screen::optimize::downscale_or_original;
                     use base64::prelude::{Engine as _, BASE64_STANDARD};
                     let image_base64 = if format != "clean" {

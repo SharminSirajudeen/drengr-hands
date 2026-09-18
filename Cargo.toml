@@ -33,11 +33,11 @@ serde_json = "1.0"
 anyhow = "1.0"
 thiserror = "1.0"
 
-# Constant-time comparison for the SDK auth token (Fix 1.5).
+# Constant-time comparison for the SDK auth token.
 subtle = "2.5"
 
-# Secure temp files (Fix 2.10) — used by simctl screenshot to avoid the
-# predictable /tmp/drengr_screenshot_*.png symlink-attack vector.
+# Secure temp files — used by simctl screenshot to avoid the predictable
+# /tmp/drengr_screenshot_*.png symlink-attack vector.
 tempfile = "3.8"
 
 # Logging
@@ -46,8 +46,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # HTTP client (for Appium WebDriver)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-# Embedded HTTPS MITM proxy for opt-in body capture (network Phase B). Pure
-# gzip/deflate decode for captured (stored) response bodies — already in-tree.
 
 # HTTP server (MCP streamable HTTP transport — hosts that can't spawn stdio,
 # e.g. Android Studio). All three are already in the tree via reqwest.
@@ -99,7 +97,7 @@ regex = "1.10"
 # (~/.drengr/runner/.locks/<udid>.lock). See src/driver/locks.rs.
 fs2 = "0.4"
 
-# OS-native credential storage for LLM API keys + license key.
+# OS-native credential storage for LLM API keys.
 # `vendored` statically links libdbus on Linux so curl|bash installs work
 # without requiring users to install dbus-dev system packages.
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }

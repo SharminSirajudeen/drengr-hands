@@ -712,10 +712,6 @@ impl DeviceTransport for AdbTransport {
         Ok(())
     }
 
-    async fn go_home(&self) -> Result<()> {
-        self.press_key(crate::transport::keycode::HOME).await
-    }
-
     async fn screen_size(&self) -> Result<(u32, u32)> {
         let output = self.shell("wm size").await?;
         parse_screen_size(&output).context("Failed to parse screen size")
@@ -1239,17 +1235,6 @@ impl DeviceTransport for AdbTransport {
 
         tracing::info!("stopped Android screen recording → {}", local_path);
         Ok(local_path)
-    }
-
-    // ── Live screen stream ─────────────────────────────────────────────
-
-    async fn screen_stream_url(&self) -> Result<Option<String>> {
-        // Android doesn't have a built-in MJPEG server like WDA. A future
-        // version of drengr will add a lightweight MJPEG proxy that does
-        // fast `adb exec-out screencap -p` loop → JPEG encode → HTTP stream.
-        // For now, the dashboard falls back to polling screenshots.
-        // TODO: implement Android MJPEG proxy in src/screen/stream.rs
-        Ok(None)
     }
 }
 

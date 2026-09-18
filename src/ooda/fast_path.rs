@@ -256,7 +256,7 @@ pub fn cache_insert(key: u64, decision: &OodaDecision, elements: &[AnnotatedElem
 }
 
 #[cfg(test)]
-pub fn _clear_cache_for_tests() {
+fn _clear_cache_for_tests() {
     cache().lock().unwrap().clear();
 }
 

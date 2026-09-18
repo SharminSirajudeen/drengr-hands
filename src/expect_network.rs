@@ -65,10 +65,6 @@ pub enum ExpectOutcome {
 }
 
 impl ExpectOutcome {
-    pub fn is_met(&self) -> bool {
-        matches!(self, Self::Met)
-    }
-
     /// Only a definite miss fails a task. Blindness is reported, never counted
     /// as evidence the app misbehaved.
     pub fn fails_task(&self) -> bool {

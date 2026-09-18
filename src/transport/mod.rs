@@ -18,6 +18,16 @@ use crate::screen::ui_element::{Bounds, DeviceInfo, Point, UiElement};
 /// Default screen dimensions when screen_size() fails.
 pub const DEFAULT_SCREEN_SIZE: (u32, u32) = (1080, 2340);
 
+/// Widest frame any decoder here will accept, in either axis. Two paths decode
+/// a full screenshot and both must refuse the same sizes.
+pub const MAX_SCREENSHOT_DIM: u32 = 4096;
+
+/// How long a swipe takes when the caller states a direction but no velocity.
+pub const DEFAULT_SWIPE_DURATION_MS: u32 = 300;
+
+/// Swipes one `scroll_to_top` / `scroll_to_bottom` will attempt before giving up.
+pub const MAX_SCROLL_SWIPES: usize = 10;
+
 /// User-facing description of one installed app, returned by
 /// `list_apps_with_names`. Pairs the canonical `package` (bundle id on iOS,
 /// package name on Android) with the launcher label and a coarse user/system
@@ -69,9 +79,7 @@ pub struct Observation {
 /// Every implementation (ADB, simctl, Appium) provides these 13 methods.
 #[async_trait]
 pub trait DeviceTransport: Send + Sync {
-    /// Stable platform tag for telemetry / logs. Returned values are part of
-    /// the `internal_telemetry.target_platform` and `run_outcomes.platform` schema —
-    /// keep aligned with the CHECK constraint.
+    /// Stable platform tag for logs and run summaries.
     fn platform_kind(&self) -> &'static str {
         "unknown"
     }
@@ -450,19 +458,9 @@ pub trait DeviceTransport: Send + Sync {
         Ok(())
     }
 
-    /// URL of a live MJPEG screen stream for this device, if available.
-    ///
-    /// - **iOS:** WDA's MJPEG server at `http://localhost:<mjpeg_port>/stream`
-    ///   (port defaults to 9100, allocated during WDA bootstrap).
-    /// - **Android:** drengr starts a lightweight MJPEG proxy that does
-    ///   fast `screencap` loop → JPEG encode → HTTP multipart stream.
-    ///
-    /// The dashboard's `LiveSessionPanel` uses this URL as the `<img src>`
-    /// for real-time device mirroring. Returns `None` if the device
-    /// doesn't support live streaming (e.g. Appium cloud devices where
-    /// low-latency localhost streaming isn't possible).
-    ///
-    /// Default: None.
+    /// URL of a live MJPEG screen stream for this device. No transport ships
+    /// one yet, so every implementation answers `None`; the callers poll
+    /// screenshots instead. `None` is the answer, not a stand-in for an error.
     async fn screen_stream_url(&self) -> Result<Option<String>> {
         Ok(None)
     }

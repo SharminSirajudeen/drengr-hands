@@ -112,9 +112,9 @@ impl LlmProvider {
         matches!(self, Self::Anthropic)
     }
 
-    /// Stable lowercase tag for telemetry. Aligned with the `run_outcomes.provider`
-    /// CHECK constraint — adding a variant here means widening the migration too.
-    pub fn telemetry_tag(&self) -> &'static str {
+    /// The provider's stable lowercase name — the spelling `DRENGR_VISION_PROVIDER`
+    /// accepts and the key store files its API key under.
+    pub fn as_str(&self) -> &'static str {
         match self {
             Self::OpenAi => "openai",
             Self::Gemini => "gemini",
@@ -136,24 +136,6 @@ pub struct LlmClient {
     base_url: String,
     model: String,
     strict_output: bool,
-    /// Stats from the most recent wire call (tokens + finish_reason + model),
-    /// set by request.rs and drained by the OODA loop into its perf row.
-    last_stats: std::sync::Mutex<Option<CallStats>>,
-}
-
-/// What the LLM response carries that's worth keeping: token counts (cost),
-/// `finish_reason` (`length` = a truncated decision), and the model that served
-/// (catches silent fallback/routing).
-#[derive(Debug, Clone, Default)]
-pub struct CallStats {
-    pub prompt_tokens: Option<u32>,
-    pub completion_tokens: Option<u32>,
-    pub finish_reason: Option<String>,
-    pub model: Option<String>,
-    /// Provider rate-limit headroom from the response headers — the basis for
-    /// proactive backoff before a 429.
-    pub ratelimit_remaining_tokens: Option<u32>,
-    pub ratelimit_remaining_requests: Option<u32>,
 }
 
 mod judge;
@@ -182,7 +164,6 @@ impl LlmClient {
             base_url,
             model,
             strict_output,
-            last_stats: std::sync::Mutex::new(None),
         })
     }
 
@@ -196,26 +177,12 @@ impl LlmClient {
             base_url,
             model,
             strict_output: true,
-            last_stats: std::sync::Mutex::new(None),
         }
-    }
-
-    /// Drain the stats from the most recent wire call (token usage,
-    /// finish_reason, model). None if no call has happened since the last drain.
-    pub fn take_last_stats(&self) -> Option<CallStats> {
-        self.last_stats.lock().ok().and_then(|mut g| g.take())
     }
 
     /// The endpoint every wire call goes to, after the gateway and override rules.
     pub fn base_url(&self) -> &str {
         &self.base_url
-    }
-
-    /// Record stats from a wire response (called by request.rs / judge.rs).
-    pub(super) fn set_stats(&self, stats: CallStats) {
-        if let Ok(mut g) = self.last_stats.lock() {
-            *g = Some(stats);
-        }
     }
 
     /// Send a text-only prompt. `allow_wait` drops `wait` from the schema enum
@@ -272,7 +239,7 @@ impl LlmClient {
         };
         let mut line = format!(
             "Using {} · {} ({})",
-            self.provider.telemetry_tag(),
+            self.provider.as_str(),
             self.model,
             origin
         );
@@ -575,7 +542,6 @@ mod tests {
             base_url: "https://endpoint.invalid/v1".to_string(),
             model: "test-model".to_string(),
             strict_output: false,
-            last_stats: std::sync::Mutex::new(None),
         };
         assert!(
             llm.describe().contains(llm.base_url()),

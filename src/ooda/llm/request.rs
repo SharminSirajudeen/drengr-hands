@@ -6,30 +6,6 @@ use super::*;
 /// connection and then went quiet hung the OODA loop forever.
 pub(super) const LLM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
-/// Provider-agnostic rate-limit headroom from the response headers — OpenAI
-/// uses `x-ratelimit-remaining-*`, Anthropic `anthropic-ratelimit-*-remaining`.
-/// Returns (remaining_tokens, remaining_requests); the basis for backoff.
-fn ratelimit_remaining(headers: &reqwest::header::HeaderMap) -> (Option<u32>, Option<u32>) {
-    let get = |names: &[&str]| -> Option<u32> {
-        names.iter().find_map(|n| {
-            headers
-                .get(*n)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.trim().parse().ok())
-        })
-    };
-    (
-        get(&[
-            "x-ratelimit-remaining-tokens",
-            "anthropic-ratelimit-tokens-remaining",
-        ]),
-        get(&[
-            "x-ratelimit-remaining-requests",
-            "anthropic-ratelimit-requests-remaining",
-        ]),
-    )
-}
-
 impl LlmClient {
     /// OpenAI-compatible chat completions (works for OpenAI, Gemini, Groq, Together, Fireworks, Ollama).
     pub(super) async fn complete_openai_compat(
@@ -95,7 +71,6 @@ impl LlmClient {
             .await
             .context("LLM API request failed")?;
         let status = response.status();
-        let (rl_tokens, rl_requests) = ratelimit_remaining(response.headers());
         let text = response
             .text()
             .await
@@ -143,18 +118,6 @@ impl LlmClient {
                     truncate(&final_text, ERROR_PREVIEW_LEN)
                 )
             })?;
-        self.set_stats(CallStats {
-            prompt_tokens: parsed["usage"]["prompt_tokens"].as_u64().map(|n| n as u32),
-            completion_tokens: parsed["usage"]["completion_tokens"]
-                .as_u64()
-                .map(|n| n as u32),
-            finish_reason: parsed["choices"][0]["finish_reason"]
-                .as_str()
-                .map(String::from),
-            model: parsed["model"].as_str().map(String::from),
-            ratelimit_remaining_tokens: rl_tokens,
-            ratelimit_remaining_requests: rl_requests,
-        });
         tracing::debug!("RAW LLM RESPONSE: {}", content);
         Ok(content)
     }
@@ -195,7 +158,6 @@ impl LlmClient {
             .context("Anthropic API request failed")?;
 
         let status = response.status();
-        let (rl_tokens, rl_requests) = ratelimit_remaining(response.headers());
         let text = response
             .text()
             .await
@@ -212,14 +174,6 @@ impl LlmClient {
         let parsed: Value =
             serde_json::from_str(&text).context("Failed to parse Anthropic response JSON")?;
 
-        self.set_stats(CallStats {
-            prompt_tokens: parsed["usage"]["input_tokens"].as_u64().map(|n| n as u32),
-            completion_tokens: parsed["usage"]["output_tokens"].as_u64().map(|n| n as u32),
-            finish_reason: parsed["stop_reason"].as_str().map(String::from),
-            model: parsed["model"].as_str().map(String::from),
-            ratelimit_remaining_tokens: rl_tokens,
-            ratelimit_remaining_requests: rl_requests,
-        });
         parsed["content"][0]["text"]
             .as_str()
             .map(|s| s.to_string())

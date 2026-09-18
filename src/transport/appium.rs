@@ -201,10 +201,6 @@ impl DeviceTransport for AppiumTransport {
         Ok(())
     }
 
-    async fn go_home(&self) -> Result<()> {
-        self.press_key(keycode::HOME).await
-    }
-
     async fn launch_app(&self, package: &str) -> Result<()> {
         let body = self.app_id_body(validated_package(package)?);
         self.cmd("POST", "/appium/device/activate_app", Some(body))

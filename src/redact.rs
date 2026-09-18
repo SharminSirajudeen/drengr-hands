@@ -1,5 +1,4 @@
 //! PII redaction for diagnostic bundles. Best-effort, regex-based.
-//! See runbooks/diagnostic-telemetry-2026-04-30.md for the privacy contract.
 
 use std::sync::OnceLock;
 

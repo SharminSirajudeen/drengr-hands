@@ -288,9 +288,6 @@ impl McpHandlers {
             None => return ToolResult::error("Missing required parameter: question"),
         };
 
-        // All queries are free. The only Pro gate is cloud_devices (checked in connect handler).
-        // Daily usage limit is enforced in dispatch(), not here.
-
         match question {
             "capabilities" => {
                 // Return the structured action+query catalog. The LLM reads this once
@@ -340,7 +337,7 @@ impl McpHandlers {
                     None => return ToolResult::error(NO_DEVICE_HINT),
                 };
                 let activity = crate::transport::activity_or_unknown(transport.as_ref()).await;
-                let package = activity.split('/').next().unwrap_or("").to_string();
+                let package = extract_package(&activity).to_string();
                 ToolResult::text(
                     serde_json::to_string_pretty(&json!({
                         "activity": activity,
@@ -349,119 +346,7 @@ impl McpHandlers {
                     .unwrap_or_default(),
                 )
             }
-            "connect" => {
-                let cloud = args.get("cloud").and_then(|c| c.as_str());
-                if let Some(cloud_provider) = cloud {
-                    let device_name = args
-                        .get("device")
-                        .and_then(|d| d.as_str())
-                        .unwrap_or("default");
-                    let os_version = args
-                        .get("os_version")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("latest");
-                    let app = args.get("app").and_then(|a| a.as_str());
-                    match crate::transport::create_cloud_transport(
-                        cloud_provider,
-                        device_name,
-                        os_version,
-                        app,
-                    )
-                    .await
-                    {
-                        Ok(t) => {
-                            self.set_transport(t).await;
-                            ToolResult::text(
-                                serde_json::to_string_pretty(&json!({
-                                    "connected": true,
-                                    "cloud": cloud_provider,
-                                    "device": device_name,
-                                    "os_version": os_version,
-                                }))
-                                .unwrap_or_default(),
-                            )
-                        }
-                        Err(e) => ToolResult::error(format!("Cloud connect failed: {}", e)),
-                    }
-                } else {
-                    let requested_id = args.get("device").and_then(|d| d.as_str());
-
-                    // Check if the device is already connected — just switch to it
-                    if let Some(id) = requested_id {
-                        let transports = self.transports.lock().await;
-                        // Exact match, then prefix match (same logic as resolve_transport)
-                        let matched_id = if transports.contains_key(id) {
-                            Some(id.to_string())
-                        } else {
-                            transports
-                                .keys()
-                                .find(|k| k.starts_with(id) || id.starts_with(k.as_str()))
-                                .cloned()
-                        };
-                        drop(transports);
-
-                        if let Some(mid) = matched_id {
-                            // Clone transport out of map, then drop lock before async call
-                            let transport = self.transports.lock().await.get(&mid).cloned();
-                            if let Some(t) = transport {
-                                // Transport confirmed — now safe to set active
-                                *self.active_device.lock().await = Some(mid.clone());
-                                let info = t.device_info().await.ok();
-                                return ToolResult::text(
-                                    serde_json::to_string_pretty(&json!({
-                                        "connected": true,
-                                        "device": mid,
-                                        "os": info.as_ref().map(|i| i.os.as_str()).unwrap_or("unknown"),
-                                        "model": info.as_ref().map(|i| i.model.as_str()).unwrap_or("unknown"),
-                                    }))
-                                    .unwrap_or_default(),
-                                );
-                            }
-                            // Transport disappeared — fall through to re-detect
-                        }
-                    }
-
-                    // Not already connected — detect and create new transport
-                    let devices = crate::transport::detect::detect_devices().await;
-                    if devices.is_empty() {
-                        return ToolResult::error("No devices found.");
-                    }
-                    let device = if let Some(id) = requested_id {
-                        match devices.iter().find(|d| d.id == id).or_else(|| {
-                            devices
-                                .iter()
-                                .find(|d| d.id.starts_with(id) || id.starts_with(&d.id))
-                        }) {
-                            Some(d) => d,
-                            None => {
-                                let available: Vec<&str> =
-                                    devices.iter().map(|d| d.id.as_str()).collect();
-                                return ToolResult::error(format!(
-                                    "Device '{}' not found. Available: {:?}",
-                                    id, available
-                                ));
-                            }
-                        }
-                    } else {
-                        &devices[0]
-                    };
-                    let device_id = device.id.clone();
-                    let device_os = device.os.to_string();
-                    let device_model = device.model.clone();
-                    let transport = crate::transport::create_transport(device);
-                    self.set_transport_with_id(device_id.clone(), transport)
-                        .await;
-                    ToolResult::text(
-                        serde_json::to_string_pretty(&json!({
-                            "connected": true,
-                            "device": device_id,
-                            "os": device_os,
-                            "model": device_model,
-                        }))
-                        .unwrap_or_default(),
-                    )
-                }
-            }
+            "connect" => self.handle_connect_query(&args).await,
             "ui_dump" => {
                 let transport = match self.resolve_transport(&args).await {
                     Some(t) => t,
@@ -520,112 +405,7 @@ impl McpHandlers {
                     .unwrap_or_default(),
                 )
             }
-            "find" => {
-                let target = args.get("target").and_then(|t| t.as_str()).unwrap_or("");
-                if target.is_empty() {
-                    return ToolResult::error("find requires 'target' parameter");
-                }
-
-                let annotated_guard = self.last_annotated.lock().await;
-                match annotated_guard.as_ref() {
-                    Some(annotated) => {
-                        let target_lower = target.to_lowercase();
-                        let (best, total_hits) = best_label_match(
-                            &annotated.elements,
-                            &target_lower,
-                            // Rank on the label we actually REPORT. Ranking on
-                            // display_label made find answer match "exact" against
-                            // a class name the response then refuses to show, which
-                            // is the fake precision confidence: 1.0 was removed for.
-                            |e| e.element.label_or_empty().to_string(),
-                        );
-                        match best.map(|i| &annotated.elements[i]) {
-                            Some(e) => {
-                                // Reuse the shared projection rather than hand-
-                                // rolling a second one: this copy silently kept
-                                // the three-field shape (no bounds, no state)
-                                // after the main path grew them.
-                                let label_lower = e.element.label_or_empty().to_lowercase();
-                                let mut found = json!({
-                                    "found": true,
-                                    "match": query_match_kind(&label_lower, &target_lower),
-                                    // Ambiguity the old hardcoded confidence hid:
-                                    // several labels can contain the same needle.
-                                    "matches": total_hits,
-                                });
-                                if let Some(el) =
-                                    super::annotated_elements_to_json(std::slice::from_ref(e))
-                                        .into_iter()
-                                        .next()
-                                {
-                                    found["element"] = el;
-                                }
-                                ToolResult::text(
-                                    serde_json::to_string_pretty(&found).unwrap_or_default(),
-                                )
-                            }
-                            None => ToolResult::text(
-                                serde_json::to_string_pretty(&json!({"found": false}))
-                                    .unwrap_or_default(),
-                            ),
-                        }
-                    }
-                    // A one-shot CLI has no in-memory screen, but the `look`
-                    // that numbered these elements left them on disk.
-                    None => {
-                        // Only a record for THIS device can answer: the numbers
-                        // are coordinates in that device's own logical space.
-                        let observation = match self.resolve_transport(&args).await {
-                            Some(t) => ScreenAnnotator::observation_for_device(t.id()),
-                            None => None,
-                        };
-                        let persisted = observation
-                            .as_ref()
-                            .map(|o| o.elements.as_slice())
-                            .unwrap_or_default();
-                        if persisted.is_empty() {
-                            return ToolResult::error(
-                                "No screen observed yet. Call drengr_look first.",
-                            );
-                        }
-                        let target_lower = target.to_lowercase();
-                        let (best, total_hits) =
-                            best_label_match(persisted, &target_lower, |e| e.label.clone());
-                        match best.map(|i| &persisted[i]) {
-                            Some(e) => {
-                                let label_lower = e.label.to_lowercase();
-                                // Only what was actually stored: the disk record has
-                                // no bounds or class, and inventing them would be a
-                                // richer answer than the evidence supports.
-                                // From disk, so it describes whatever screen the
-                                // last process saw, not necessarily this one. Say
-                                // so rather than claiming a plain hit.
-                                let meta = observation.as_ref();
-                                ToolResult::text(
-                                    serde_json::to_string_pretty(&json!({
-                                        "found": true,
-                                        "from_disk": true,
-                                        "observed_at": meta.map(|o| o.written_at.as_str()).unwrap_or(""),
-                                        "observed_activity": meta.map(|o| o.activity.as_str()).unwrap_or(""),
-                                        "match": query_match_kind(&label_lower, &target_lower),
-                                        "matches": total_hits,
-                                        "element": {
-                                            "n": e.number,
-                                            "text": e.label,
-                                            "tap": [e.tap_x, e.tap_y],
-                                        },
-                                    }))
-                                    .unwrap_or_default(),
-                                )
-                            }
-                            None => ToolResult::text(
-                                serde_json::to_string_pretty(&json!({"found": false}))
-                                    .unwrap_or_default(),
-                            ),
-                        }
-                    }
-                }
-            }
+            "find" => self.handle_find_query(&args).await,
             "explore" => {
                 let transport = match self.resolve_transport(&args).await {
                     Some(t) => t,
@@ -844,98 +624,7 @@ impl McpHandlers {
                     .unwrap_or_default(),
                 )
             }
-            "assert" => {
-                let conditions_str = args
-                    .get("conditions")
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("[]");
-                let conditions = match crate::validate::validate_assert_conditions(conditions_str) {
-                    Ok(c) => c,
-                    Err(e) => return ToolResult::error(format!("Invalid conditions: {}", e)),
-                };
-
-                let annotated_guard = self.last_annotated.lock().await;
-                let annotated = match annotated_guard.as_ref() {
-                    Some(a) => a,
-                    None => {
-                        return ToolResult::error("No screen observed yet. Call drengr_look first.")
-                    }
-                };
-
-                let mut results = Vec::new();
-                let mut all_pass = true;
-
-                for cond in &conditions {
-                    let target_text = cond.get("text").and_then(|t| t.as_str()).unwrap_or("");
-                    let expected_visible = cond
-                        .get("visible")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(true);
-                    let expected_type = cond.get("type").and_then(|t| t.as_str());
-
-                    let target_lower = target_text.to_lowercase();
-                    let found = annotated.elements.iter().find(|e| {
-                        // Same rule as find: an assertion that passes against a
-                        // class name is a false positive where they cost most.
-                        e.element
-                            .label_or_empty()
-                            .to_lowercase()
-                            .contains(&target_lower)
-                    });
-
-                    let (met, reason) = match (found, expected_visible) {
-                        (Some(e), true) => {
-                            if let Some(exp_type) = expected_type {
-                                if e.element
-                                    .short_class()
-                                    .to_lowercase()
-                                    .contains(&exp_type.to_lowercase())
-                                {
-                                    (
-                                        true,
-                                        format!(
-                                            "Found '{}' as {}",
-                                            target_text,
-                                            e.element.short_class()
-                                        ),
-                                    )
-                                } else {
-                                    (
-                                        false,
-                                        format!(
-                                            "Found '{}' but type is {} (expected {})",
-                                            target_text,
-                                            e.element.short_class(),
-                                            exp_type
-                                        ),
-                                    )
-                                }
-                            } else {
-                                (true, format!("Found '{}'", target_text))
-                            }
-                        }
-                        (None, true) => (false, format!("'{}' not found on screen", target_text)),
-                        (Some(_), false) => (
-                            false,
-                            format!("'{}' is visible (expected not visible)", target_text),
-                        ),
-                        (None, false) => (true, format!("'{}' correctly not visible", target_text)),
-                    };
-
-                    if !met {
-                        all_pass = false;
-                    }
-                    results.push(json!({ "condition": cond, "met": met, "reason": reason }));
-                }
-
-                ToolResult::text(
-                    serde_json::to_string_pretty(&json!({
-                        "pass": all_pass,
-                        "results": results,
-                    }))
-                    .unwrap_or_default(),
-                )
-            }
+            "assert" => self.handle_assert_query(&args).await,
             "diff" => {
                 let transport = match self.resolve_transport(&args).await {
                     Some(t) => t,
@@ -984,6 +673,305 @@ impl McpHandlers {
 
     /// Handle analyze query — structured session analysis with tiered output.
     /// Free: step count + teaser. Pro: full analysis. Team: element-level audit.
+    async fn handle_connect_query(&self, args: &Value) -> ToolResult {
+        let cloud = args.get("cloud").and_then(|c| c.as_str());
+        if let Some(cloud_provider) = cloud {
+            let device_name = args
+                .get("device")
+                .and_then(|d| d.as_str())
+                .unwrap_or("default");
+            let os_version = args
+                .get("os_version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("latest");
+            let app = args.get("app").and_then(|a| a.as_str());
+            match crate::transport::create_cloud_transport(
+                cloud_provider,
+                device_name,
+                os_version,
+                app,
+            )
+            .await
+            {
+                Ok(t) => {
+                    self.set_transport(t).await;
+                    ToolResult::text(
+                        serde_json::to_string_pretty(&json!({
+                            "connected": true,
+                            "cloud": cloud_provider,
+                            "device": device_name,
+                            "os_version": os_version,
+                        }))
+                        .unwrap_or_default(),
+                    )
+                }
+                Err(e) => ToolResult::error(format!("Cloud connect failed: {}", e)),
+            }
+        } else {
+            let requested_id = args.get("device").and_then(|d| d.as_str());
+
+            // Check if the device is already connected — just switch to it
+            if let Some(id) = requested_id {
+                let transports = self.transports.lock().await;
+                let matched_id = if transports.contains_key(id) {
+                    Some(id.to_string())
+                } else {
+                    transports
+                        .keys()
+                        .find(|k| device_id_prefix_matches(k, id))
+                        .cloned()
+                };
+                drop(transports);
+
+                if let Some(mid) = matched_id {
+                    // Clone transport out of map, then drop lock before async call
+                    let transport = self.transports.lock().await.get(&mid).cloned();
+                    if let Some(t) = transport {
+                        // Transport confirmed — now safe to set active
+                        *self.active_device.lock().await = Some(mid.clone());
+                        let info = t.device_info().await.ok();
+                        return ToolResult::text(
+                            serde_json::to_string_pretty(&json!({
+                                "connected": true,
+                                "device": mid,
+                                "os": info.as_ref().map(|i| i.os.as_str()).unwrap_or("unknown"),
+                                "model": info.as_ref().map(|i| i.model.as_str()).unwrap_or("unknown"),
+                            }))
+                            .unwrap_or_default(),
+                        );
+                    }
+                    // Transport disappeared — fall through to re-detect
+                }
+            }
+
+            // Not already connected — detect and create new transport
+            let devices = crate::transport::detect::detect_devices().await;
+            if devices.is_empty() {
+                return ToolResult::error("No devices found.");
+            }
+            let device = if let Some(id) = requested_id {
+                match devices
+                    .iter()
+                    .find(|d| d.id == id)
+                    .or_else(|| devices.iter().find(|d| device_id_prefix_matches(&d.id, id)))
+                {
+                    Some(d) => d,
+                    None => {
+                        let available: Vec<&str> = devices.iter().map(|d| d.id.as_str()).collect();
+                        return ToolResult::error(format!(
+                            "Device '{}' not found. Available: {:?}",
+                            id, available
+                        ));
+                    }
+                }
+            } else {
+                &devices[0]
+            };
+            let device_id = device.id.clone();
+            let device_os = device.os.to_string();
+            let device_model = device.model.clone();
+            let transport = crate::transport::create_transport(device);
+            self.set_transport_with_id(device_id.clone(), transport)
+                .await;
+            ToolResult::text(
+                serde_json::to_string_pretty(&json!({
+                    "connected": true,
+                    "device": device_id,
+                    "os": device_os,
+                    "model": device_model,
+                }))
+                .unwrap_or_default(),
+            )
+        }
+    }
+
+    async fn handle_find_query(&self, args: &Value) -> ToolResult {
+        let target = args.get("target").and_then(|t| t.as_str()).unwrap_or("");
+        if target.is_empty() {
+            return ToolResult::error("find requires 'target' parameter");
+        }
+
+        let annotated_guard = self.last_annotated.lock().await;
+        match annotated_guard.as_ref() {
+            Some(annotated) => {
+                let target_lower = target.to_lowercase();
+                let (best, total_hits) = best_label_match(
+                    &annotated.elements,
+                    &target_lower,
+                    // Rank on the label we actually REPORT. Ranking on
+                    // display_label made find answer match "exact" against
+                    // a class name the response then refuses to show, which
+                    // is the fake precision confidence: 1.0 was removed for.
+                    |e| e.element.label_or_empty().to_string(),
+                );
+                match best.map(|i| &annotated.elements[i]) {
+                    Some(e) => {
+                        // Reuse the shared projection rather than hand-
+                        // rolling a second one: this copy silently kept
+                        // the three-field shape (no bounds, no state)
+                        // after the main path grew them.
+                        let label_lower = e.element.label_or_empty().to_lowercase();
+                        let mut found = json!({
+                            "found": true,
+                            "match": query_match_kind(&label_lower, &target_lower),
+                            // Ambiguity the old hardcoded confidence hid:
+                            // several labels can contain the same needle.
+                            "matches": total_hits,
+                        });
+                        if let Some(el) = super::annotated_elements_to_json(std::slice::from_ref(e))
+                            .into_iter()
+                            .next()
+                        {
+                            found["element"] = el;
+                        }
+                        ToolResult::text(serde_json::to_string_pretty(&found).unwrap_or_default())
+                    }
+                    None => ToolResult::text(
+                        serde_json::to_string_pretty(&json!({"found": false})).unwrap_or_default(),
+                    ),
+                }
+            }
+            // A one-shot CLI has no in-memory screen, but the `look`
+            // that numbered these elements left them on disk.
+            None => {
+                // Only a record for THIS device can answer: the numbers
+                // are coordinates in that device's own logical space.
+                let observation = match self.resolve_transport(args).await {
+                    Some(t) => ScreenAnnotator::observation_for_device(t.id()),
+                    None => None,
+                };
+                let persisted = observation
+                    .as_ref()
+                    .map(|o| o.elements.as_slice())
+                    .unwrap_or_default();
+                if persisted.is_empty() {
+                    return ToolResult::error("No screen observed yet. Call drengr_look first.");
+                }
+                let target_lower = target.to_lowercase();
+                let (best, total_hits) =
+                    best_label_match(persisted, &target_lower, |e| e.label.clone());
+                match best.map(|i| &persisted[i]) {
+                    Some(e) => {
+                        let label_lower = e.label.to_lowercase();
+                        // Only what was actually stored: the disk record has
+                        // no bounds or class, and inventing them would be a
+                        // richer answer than the evidence supports.
+                        // From disk, so it describes whatever screen the
+                        // last process saw, not necessarily this one. Say
+                        // so rather than claiming a plain hit.
+                        let meta = observation.as_ref();
+                        ToolResult::text(
+                            serde_json::to_string_pretty(&json!({
+                                "found": true,
+                                "from_disk": true,
+                                "observed_at": meta.map(|o| o.written_at.as_str()).unwrap_or(""),
+                                "observed_activity": meta.map(|o| o.activity.as_str()).unwrap_or(""),
+                                "match": query_match_kind(&label_lower, &target_lower),
+                                "matches": total_hits,
+                                "element": {
+                                    "n": e.number,
+                                    "text": e.label,
+                                    "tap": [e.tap_x, e.tap_y],
+                                },
+                            }))
+                            .unwrap_or_default(),
+                        )
+                    }
+                    None => ToolResult::text(
+                        serde_json::to_string_pretty(&json!({"found": false})).unwrap_or_default(),
+                    ),
+                }
+            }
+        }
+    }
+
+    async fn handle_assert_query(&self, args: &Value) -> ToolResult {
+        let conditions_str = args
+            .get("conditions")
+            .and_then(|c| c.as_str())
+            .unwrap_or("[]");
+        let conditions = match crate::validate::validate_assert_conditions(conditions_str) {
+            Ok(c) => c,
+            Err(e) => return ToolResult::error(format!("Invalid conditions: {}", e)),
+        };
+
+        let annotated_guard = self.last_annotated.lock().await;
+        let annotated = match annotated_guard.as_ref() {
+            Some(a) => a,
+            None => return ToolResult::error("No screen observed yet. Call drengr_look first."),
+        };
+
+        let mut results = Vec::new();
+        let mut all_pass = true;
+
+        for cond in &conditions {
+            let target_text = cond.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            let expected_visible = cond
+                .get("visible")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+            let expected_type = cond.get("type").and_then(|t| t.as_str());
+
+            let target_lower = target_text.to_lowercase();
+            let found = annotated.elements.iter().find(|e| {
+                // Same rule as find: an assertion that passes against a
+                // class name is a false positive where they cost most.
+                e.element
+                    .label_or_empty()
+                    .to_lowercase()
+                    .contains(&target_lower)
+            });
+
+            let (met, reason) = match (found, expected_visible) {
+                (Some(e), true) => {
+                    if let Some(exp_type) = expected_type {
+                        if e.element
+                            .short_class()
+                            .to_lowercase()
+                            .contains(&exp_type.to_lowercase())
+                        {
+                            (
+                                true,
+                                format!("Found '{}' as {}", target_text, e.element.short_class()),
+                            )
+                        } else {
+                            (
+                                false,
+                                format!(
+                                    "Found '{}' but type is {} (expected {})",
+                                    target_text,
+                                    e.element.short_class(),
+                                    exp_type
+                                ),
+                            )
+                        }
+                    } else {
+                        (true, format!("Found '{}'", target_text))
+                    }
+                }
+                (None, true) => (false, format!("'{}' not found on screen", target_text)),
+                (Some(_), false) => (
+                    false,
+                    format!("'{}' is visible (expected not visible)", target_text),
+                ),
+                (None, false) => (true, format!("'{}' correctly not visible", target_text)),
+            };
+
+            if !met {
+                all_pass = false;
+            }
+            results.push(json!({ "condition": cond, "met": met, "reason": reason }));
+        }
+
+        ToolResult::text(
+            serde_json::to_string_pretty(&json!({
+                "pass": all_pass,
+                "results": results,
+            }))
+            .unwrap_or_default(),
+        )
+    }
+
     pub(super) async fn handle_analyze(&self) -> ToolResult {
         let session_guard = self.session.lock().await;
         let session = match session_guard.as_ref() {

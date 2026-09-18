@@ -36,7 +36,9 @@ const COLORS: &[&str] = &[
 #[tokio::main]
 async fn main() -> Result<()> {
     // Honour IOS_SIMULATOR_UDID if set, otherwise pick the first booted iOS sim.
-    let pinned = std::env::var("IOS_SIMULATOR_UDID").ok().filter(|s| !s.is_empty());
+    let pinned = std::env::var("IOS_SIMULATOR_UDID")
+        .ok()
+        .filter(|s| !s.is_empty());
     let devices = detect_devices().await;
     let device = match pinned {
         Some(udid) => devices
@@ -144,8 +146,16 @@ fn scenery_strokes() -> Vec<(&'static str, &'static str, Vec<Point>)> {
     }
     out.push(("sun", "yellow", sun));
 
-    out.push(("mountain_A", "gray", vec![p(30, 360), p(140, 160), p(250, 360)]));
-    out.push(("mountain_B", "gray", vec![p(180, 360), p(270, 200), p(370, 360)]));
+    out.push((
+        "mountain_A",
+        "gray",
+        vec![p(30, 360), p(140, 160), p(250, 360)],
+    ));
+    out.push((
+        "mountain_B",
+        "gray",
+        vec![p(180, 360), p(270, 200), p(370, 360)],
+    ));
 
     // River — wavy line across the bottom.
     let mut river = Vec::new();
@@ -162,9 +172,19 @@ fn scenery_strokes() -> Vec<(&'static str, &'static str, Vec<Point>)> {
     out.push((
         "house_base",
         "brown",
-        vec![p(230, 360), p(230, 440), p(340, 440), p(340, 360), p(230, 360)],
+        vec![
+            p(230, 360),
+            p(230, 440),
+            p(340, 440),
+            p(340, 360),
+            p(230, 360),
+        ],
     ));
-    out.push(("house_roof", "red", vec![p(220, 360), p(285, 300), p(350, 360)]));
+    out.push((
+        "house_roof",
+        "red",
+        vec![p(220, 360), p(285, 300), p(350, 360)],
+    ));
     out.push((
         "house_door",
         "black",

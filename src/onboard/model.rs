@@ -208,7 +208,7 @@ async fn cloud_key_flow() -> Option<LlmClient> {
     let (provider, _, link) = &providers[idx];
 
     eprintln!("  Get a key: {link}");
-    let key = match password(&format!("Paste your {} API key", provider.telemetry_tag())) {
+    let key = match password(&format!("Paste your {} API key", provider.as_str())) {
         Some(k) if !k.trim().is_empty() => k.trim().to_string(),
         _ => return None,
     };
@@ -219,7 +219,7 @@ async fn cloud_key_flow() -> Option<LlmClient> {
         eprintln!("rejected.");
         eprintln!(
             "  That key didn't pass a vision check — double-check it's a {} key.",
-            provider.telemetry_tag()
+            provider.as_str()
         );
         return None;
     }
@@ -227,7 +227,7 @@ async fn cloud_key_flow() -> Option<LlmClient> {
 
     // Persist via the existing keychain-first store.
     let mut store = crate::key_store::KeyStore::load();
-    store.set(provider.telemetry_tag(), &key);
+    store.set(provider.as_str(), &key);
     if let Err(e) = store.save() {
         eprintln!("  (Couldn't save to keychain: {e} — set DRENGR_API_KEY to persist.)");
     } else {

@@ -1304,11 +1304,6 @@ impl DeviceTransport for SimctlTransport {
         Ok(path)
     }
 
-    async fn screen_stream_url(&self) -> Result<Option<String>> {
-        // drengr-runner does not yet ship an MJPEG endpoint.
-        Ok(None)
-    }
-
     async fn swipe_with_velocity(
         &self,
         from: Point,
@@ -1365,16 +1360,6 @@ impl DeviceTransport for SimctlTransport {
             .act(Action::Type {
                 text: query.to_string(),
                 bundle_id: None,
-            })
-            .await
-            .map_err(|e| anyhow!("{}", e))
-    }
-
-    async fn go_home(&self) -> Result<()> {
-        let client = self.client().await?;
-        client
-            .act(Action::Button {
-                button: ButtonKind::Home,
             })
             .await
             .map_err(|e| anyhow!("{}", e))

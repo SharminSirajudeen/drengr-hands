@@ -1,5 +1,5 @@
-//! Tier 1 run-outcome telemetry — anonymous aggregate of how each OODA run ended.
-//! No raw task strings, no UI text, no screenshots, no package/activity ids.
+//! How each OODA run ended, tallied in memory for the run summary. Nothing here
+//! leaves the machine, and it holds no task strings, UI text or package ids.
 
 use std::collections::HashMap;
 use std::time::Instant;
