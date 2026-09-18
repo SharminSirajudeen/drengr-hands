@@ -212,6 +212,19 @@ jobs:
         with:
           merge-multiple: true
 
+      # The .mcpb bundle is manifest + one macOS binary, zipped. It used to be a
+      # 4.6MB executable committed to the tree that nothing regenerated, so it
+      # drifted from the source it claimed to be. Built here or not at all.
+      - name: Assemble the mcpb bundle
+        run: |
+          set -euo pipefail
+          BUNDLE=$(mktemp -d)
+          cp "${GITHUB_WORKSPACE}/mcpb/manifest.json" "$BUNDLE/manifest.json"
+          mkdir -p "$BUNDLE/server"
+          tar -xzf drengr-*-aarch64-apple-darwin.tar.gz -C "$BUNDLE/server" drengr
+          ( cd "$BUNDLE" && zip -qr "${GITHUB_WORKSPACE}/drengr.mcpb" . )
+          echo "built drengr.mcpb ($(du -h drengr.mcpb | cut -f1))"
+
       - name: Generate checksums
         run: |
           echo '## SHA256 Checksums' > checksums.md
@@ -267,6 +280,9 @@ jobs:
           # GPG signing is skipped when the key secret is absent, so the .asc
           # files and checksums.txt may legitimately not exist.
           FILES=(drengr-*.tar.gz drengr-*.tar.gz.sha256)
+          if [ -f drengr.mcpb ]; then
+            FILES+=(drengr.mcpb)
+          fi
           if compgen -G "drengr-*.sha256.asc" >/dev/null; then
             FILES+=(drengr-*.sha256.asc)
           fi

@@ -7,3 +7,7 @@
 .env.*
 *.pem
 *.key
+
+# Assembled at release time from a built binary, never committed.
+mcpb/server/
+*.mcpb
