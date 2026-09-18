@@ -366,4 +366,55 @@ mod tests {
             "strings naming commands that do not exist: {stale:#?}"
         );
     }
+
+    /// An action that claims a platform must have an implementation there. The
+    /// trait's defaults bail, so a claim with no override is a promise the agent
+    /// will spend a step discovering is false. `unlock` claimed iOS and always
+    /// errored; ten trait docs described a WebDriverAgent this repo does not use.
+    #[test]
+    fn every_action_platform_claim_has_an_implementation() {
+        let actions = std::fs::read_to_string(src_root().join("mcp/actions.rs")).expect("actions");
+        let adb = std::fs::read_to_string(src_root().join("transport/adb.rs")).expect("adb");
+        let sim = std::fs::read_to_string(src_root().join("transport/simctl.rs")).expect("simctl");
+        let tr = std::fs::read_to_string(src_root().join("transport/mod.rs")).expect("mod");
+
+        // Trait methods whose default refuses: these need a real override.
+        let bails: std::collections::BTreeSet<&str> = tr
+            .split("async fn ")
+            .filter(|seg| {
+                let head: String = seg.chars().take(400).collect();
+                head.contains("anyhow::bail!")
+            })
+            .filter_map(|seg| seg.split('(').next())
+            .collect();
+
+        let mut broken = Vec::new();
+        for block in actions.split("ActionDef {").skip(1) {
+            let block: String = block.chars().take(500).collect();
+            let Some(name) = block
+                .split("name: \"")
+                .nth(1)
+                .and_then(|s| s.split('"').next())
+            else {
+                continue;
+            };
+            if !bails.contains(name) {
+                continue;
+            }
+            let claims_android =
+                block.contains("platforms: BOTH") || block.contains("platforms: ANDROID");
+            let claims_ios = block.contains("platforms: BOTH") || block.contains("platforms: IOS");
+            let sig = format!("async fn {name}(");
+            if claims_android && !adb.contains(sig.as_str()) {
+                broken.push(format!("{name}: claims android, adb.rs has no override"));
+            }
+            if claims_ios && !sim.contains(sig.as_str()) {
+                broken.push(format!("{name}: claims ios, simctl.rs has no override"));
+            }
+        }
+        assert!(
+            broken.is_empty(),
+            "actions promising a platform they cannot serve: {broken:#?}"
+        );
+    }
 }

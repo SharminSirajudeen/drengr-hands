@@ -131,16 +131,16 @@ enum Commands {
         #[arg(long)]
         no_verify_completion: bool,
 
-        /// Wipe app data and force-stop before the run (true cold start).
-        /// Equivalent to `adb shell pm clear <pkg>` + `am force-stop <pkg>`, but
-        /// transport-agnostic (works on iOS simulators via `simctl uninstall`).
+        /// Force-stop and relaunch before the run. On Android this also wipes app
+        /// data (`pm clear`), giving a true cold start. The iOS simulator has no
+        /// data-only clear, so there the app restarts with its data intact.
         #[arg(long)]
         reset: bool,
 
-        /// After the run finishes, uninstall the WDA runner from the simulator
-        /// so the next run starts from a fresh install. iOS-only; no-op on Android.
-        #[arg(long)]
-        cleanup_wda: bool,
+        /// After the run finishes, terminate the bundled iOS runner so the next
+        /// run starts cold. iOS-only; no-op on Android.
+        #[arg(long, visible_alias = "cleanup-wda")]
+        cleanup_runner: bool,
     },
 
     /// Perceive the screen: screenshot + numbered elements. No MCP, no key —
@@ -837,7 +837,7 @@ async fn main() -> anyhow::Result<()> {
             force_vision,
             no_verify_completion,
             reset,
-            cleanup_wda,
+            cleanup_runner,
         } => {
             init_logging();
 
@@ -946,7 +946,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Cleanup runs regardless of success so a crashed run still
             // leaves a clean simulator for the next invocation.
-            if cleanup_wda {
+            if cleanup_runner {
                 match transport.cleanup_runtime().await {
                     Ok(_) => eprintln!("   WDA runtime cleaned up."),
                     Err(e) => eprintln!("   WDA cleanup failed: {}", e),

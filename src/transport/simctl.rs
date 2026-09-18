@@ -1109,8 +1109,13 @@ impl DeviceTransport for SimctlTransport {
         if !crate::validate::is_valid_package_name(package) {
             anyhow::bail!("Invalid package name: {}", package);
         }
-        tracing::debug!("clear_app_data on iOS: no-op (simctl has no data-only clear)");
-        Ok(())
+        // Returning Ok made `reset_app` report a cold start it had not performed.
+        // simctl has no data-only clear; removing the container means removing
+        // the app, which is a different request with a different consequence.
+        anyhow::bail!(
+            "clear_app_data is not available on the iOS simulator — simctl has no data-only \
+             clear. Use uninstall then install to get a fresh container."
+        )
     }
 
     async fn open_url(&self, url: &str) -> Result<()> {

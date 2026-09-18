@@ -239,7 +239,7 @@ pub static ACTIONS: &[ActionDef] = &[
     },
     ActionDef {
         name: "reset_app",
-        purpose: "Cold-restart an app: terminate, clear data, then launch fresh.",
+        purpose: "Restart an app: terminate, clear data where the platform allows it (Android only), then launch fresh.",
         required: &["package"],
         optional: &[],
         platforms: BOTH,
@@ -344,7 +344,7 @@ pub static ACTIONS: &[ActionDef] = &[
         purpose: "Wake the screen and dismiss the lock screen so the device can be driven.",
         required: &[],
         optional: &[],
-        platforms: BOTH,
+        platforms: ANDROID,
         destructive: false,
         example: "unlock()",
     },

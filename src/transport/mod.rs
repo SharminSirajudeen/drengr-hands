@@ -162,7 +162,7 @@ pub trait DeviceTransport: Send + Sync {
 
     /// Trace a path of points as a single gesture. Default produces segmented
     /// strokes — pen-lifted between segments — by chaining `swipe()` per pair.
-    /// Implementations that support continuous strokes (e.g. WDA W3C actions)
+    /// Implementations that support continuous strokes (e.g. W3C actions)
     /// override this for true freehand input.
     async fn draw_path(&self, points: &[Point], duration_ms: u32) -> Result<()> {
         if points.len() < 2 {
@@ -322,16 +322,16 @@ pub trait DeviceTransport: Send + Sync {
         anyhow::bail!("grant_permission not supported on this transport")
     }
 
-    // ── Extended capabilities (parity between iOS WDA + Android ADB) ──
+    // ── Extended capabilities (parity between the iOS runner and Android ADB) ──
 
     /// Toggle dark/light appearance mode.
-    /// iOS: WDA `POST /wda/device/appearance`. Android: `cmd uimode night`.
+    /// iOS: `simctl ui appearance`. Android: `cmd uimode night`.
     async fn set_appearance(&self, _dark: bool) -> Result<()> {
         anyhow::bail!("set_appearance not supported on this transport")
     }
 
     /// Force-terminate an app by package/bundle ID.
-    /// iOS: WDA `POST /wda/apps/terminate`. Android: `am force-stop`.
+    /// iOS: `simctl terminate`. Android: `am force-stop`.
     async fn terminate_app(&self, _package: &str) -> Result<()> {
         anyhow::bail!("terminate_app not supported on this transport")
     }
@@ -342,9 +342,11 @@ pub trait DeviceTransport: Send + Sync {
         anyhow::bail!("clear_app_data not supported on this transport")
     }
 
-    /// Force-stop + wipe data + relaunch — a true cold start. `terminate_app`
-    /// and `clear_app_data` are best-effort (system apps on physical devices
-    /// can refuse `pm clear`); only the final `launch_app` is mandatory.
+    /// Force-stop, wipe data where possible, relaunch. `terminate_app` and
+    /// `clear_app_data` are best-effort — system apps on physical devices refuse
+    /// `pm clear`, and the iOS simulator has no data-only clear at all, so this
+    /// is a cold start on Android and a warm one on iOS. Only `launch_app` is
+    /// mandatory.
     async fn reset_app(&self, package: &str) -> Result<()> {
         let _ = self.terminate_app(package).await;
         if let Err(e) = self.clear_app_data(package).await {
@@ -354,19 +356,20 @@ pub trait DeviceTransport: Send + Sync {
     }
 
     /// Open a URL / deep link on the device.
-    /// iOS: WDA `POST /url`. Android: `am start -a VIEW -d <url>`.
+    /// iOS: `simctl openurl`. Android: `am start -a VIEW -d <url>`.
     async fn open_url(&self, _url: &str) -> Result<()> {
         anyhow::bail!("open_url not supported on this transport")
     }
 
     /// Wake and unlock the device screen.
-    /// iOS: WDA `POST /wda/unlock`. Android: KEYCODE_WAKEUP + KEYCODE_MENU.
+    /// Android: KEYCODE_WAKEUP + KEYCODE_MENU. Not available on the iOS simulator,
+    /// which has no lock screen to dismiss.
     async fn unlock(&self) -> Result<()> {
         anyhow::bail!("unlock not supported on this transport")
     }
 
     /// Set device orientation. 0=portrait, 1=landscape-left, 2=portrait-upside-down, 3=landscape-right.
-    /// iOS: WDA `POST /session/:id/orientation`. Android: `settings put system user_rotation`.
+    /// iOS: the bundled runner's orientation endpoint. Android: `settings put system user_rotation`.
     async fn set_orientation(&self, _rotation: u8) -> Result<()> {
         anyhow::bail!("set_orientation not supported on this transport")
     }
@@ -374,13 +377,13 @@ pub trait DeviceTransport: Send + Sync {
     /// Get alert/dialog text if one is currently showing, or None.
     /// `Ok(None)` means "looked, nothing there"; the error means "this transport
     /// cannot look" — a caller must be able to tell those apart.
-    /// iOS: WDA `GET /session/:id/alert/text`. Android: parse ui_tree for dialog elements.
+    /// Both platforms read it out of the element tree; there is no alert API in either.
     async fn alert_text(&self) -> Result<Option<String>> {
         anyhow::bail!("alert_text not supported on this transport")
     }
 
     /// Accept/dismiss the current alert/dialog.
-    /// iOS: WDA `POST /session/:id/alert/accept`. Android: find positive button + tap.
+    /// Both platforms find the accept button in the element tree and tap it.
     async fn alert_accept(&self) -> Result<()> {
         anyhow::bail!("alert_accept not supported on this transport")
     }
@@ -394,19 +397,19 @@ pub trait DeviceTransport: Send + Sync {
     /// 2=background-suspended, 3=background, 4=foreground. 0 is a real answer
     /// from a hub that does not hold the app, not a stand-in for unknown: a
     /// transport that cannot determine the state errors instead.
-    /// iOS: WDA `POST /wda/apps/state`. Android: `pidof` + `dumpsys activity`.
+    /// iOS: `simctl spawn launchctl list`. Android: `pidof` + `dumpsys activity`.
     async fn app_state(&self, _package: &str) -> Result<u8> {
         anyhow::bail!("app_state not supported on this transport")
     }
 
     /// Simulate biometric authentication (fingerprint/face). `matches`=true for success.
-    /// iOS: WDA `POST /wda/touch_id`. Android: `adb emu finger touch` (emulator only).
+    /// iOS: `simctl ui biometric`. Android: `adb emu finger touch` (emulator only).
     async fn simulate_biometric(&self, _matches: bool) -> Result<()> {
         anyhow::bail!("simulate_biometric not supported on this transport")
     }
 
     /// Set simulated GPS location.
-    /// iOS: WDA `POST /wda/simulatedLocation`. Android: `adb emu geo fix` (emulator).
+    /// iOS: `simctl location set`. Android: `adb emu geo fix` (emulator).
     async fn set_location(&self, _lat: f64, _lng: f64) -> Result<()> {
         anyhow::bail!("set_location not supported on this transport")
     }
@@ -452,7 +455,8 @@ pub trait DeviceTransport: Send + Sync {
         anyhow::bail!("No recording in progress")
     }
 
-    /// Post-run teardown. iOS: uninstalls WDA runtime. Android: no-op.
+    /// Post-run teardown. iOS: terminates the bundled runner so the next run
+    /// starts cold. Android: no-op.
     /// Default: no-op.
     async fn cleanup_runtime(&self) -> Result<()> {
         Ok(())
