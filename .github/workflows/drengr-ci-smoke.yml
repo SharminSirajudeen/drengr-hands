@@ -10,6 +10,13 @@ name: drengr-ci smoke test
 
 on:
   workflow_dispatch:
+    inputs:
+      provider:
+        description: "LLM provider for the live run. The key goes in the DRENGR_API_KEY secret, whichever vendor it belongs to."
+        required: false
+        default: groq
+        type: choice
+        options: [groq, openai, gemini, anthropic, together, fireworks]
 
 jobs:
   action-smoke:
@@ -104,8 +111,11 @@ jobs:
             drengr doctor | grep -A2 "Vision API key" || true
             drengr test --format json --output drengr-results.json
         env:
-          DRENGR_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          DRENGR_VISION_PROVIDER: groq
+          # One generically named secret, provider chosen at dispatch. Pinning a
+          # vendor here would make a public repo's CI depend on an account only
+          # this fork has; any of drengr's providers drives the emulator equally.
+          DRENGR_API_KEY: ${{ secrets.DRENGR_API_KEY }}
+          DRENGR_VISION_PROVIDER: ${{ inputs.provider }}
 
       - name: Show results
         if: always()
