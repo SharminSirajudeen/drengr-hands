@@ -113,12 +113,34 @@ async fn run_inner() -> (&'static str, Option<String>) {
 
     // S7 — Finish.
     finish(target, &device, &brain, &wired);
-    let outcome = if wired.is_empty() {
+    (outcome_for(&wired), platform)
+}
+
+/// How one client reads in the picker. Pure so the badge logic is testable:
+/// a host we can write for, one that only gets a snippet, and one that speaks
+/// HTTP are three different promises to the user.
+fn client_label(c: &clients::Client) -> String {
+    let badge = match (c.writable(), &c.wire) {
+        (_, clients::Wire::Http(_)) => "HTTP",
+        (true, _) => "writable",
+        (false, _) => "copy snippet",
+    };
+    let found = if c.installed() {
+        ""
+    } else {
+        "  (not detected)"
+    };
+    format!("{:<16} [{}]{}", c.name, badge, found)
+}
+
+/// What the run is called when it ends. Wiring nothing is not a failure — the
+/// user may only have wanted the device set up — but it is not "complete".
+fn outcome_for(wired: &[String]) -> &'static str {
+    if wired.is_empty() {
         "no_client"
     } else {
         "complete"
-    };
-    (outcome, platform)
+    }
 }
 
 fn print_manual_transcript() {
@@ -278,22 +300,7 @@ fn wire_clients() -> Vec<String> {
     let android_home = crate::transport::android_sdk::sdk_root_env();
     let catalog = clients::all(&home, 7878);
 
-    let labels: Vec<String> = catalog
-        .iter()
-        .map(|c| {
-            let badge = match (c.writable(), &c.wire) {
-                (_, clients::Wire::Http(_)) => "HTTP",
-                (true, _) => "writable",
-                (false, _) => "copy snippet",
-            };
-            let found = if c.installed() {
-                ""
-            } else {
-                "  (not detected)"
-            };
-            format!("{:<16} [{}]{}", c.name, badge, found)
-        })
-        .collect();
+    let labels: Vec<String> = catalog.iter().map(client_label).collect();
     let preselect: Vec<bool> = catalog.iter().map(|c| c.installed()).collect();
 
     let chosen = multiselect(
@@ -553,4 +560,73 @@ fn multiselect(prompt: &str, items: &[String], defaults: &[bool]) -> Vec<usize> 
         .ok()
         .flatten()
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mcp::clients::{Client, Wire};
+    use std::path::PathBuf;
+
+    fn client(name: &'static str, path: Option<PathBuf>, wire: Wire) -> Client {
+        Client {
+            key: "k",
+            name,
+            wire,
+            path,
+            note: None,
+            abs_cmd: false,
+            cli_fallback: None,
+        }
+    }
+
+    #[test]
+    fn a_target_covers_exactly_the_platforms_it_names() {
+        assert!(Target::Android.wants_android() && !Target::Android.wants_ios());
+        assert!(Target::Ios.wants_ios() && !Target::Ios.wants_android());
+        assert!(Target::Both.wants_android() && Target::Both.wants_ios());
+    }
+
+    // The badge is a promise about what happens next: a host we can write for,
+    // one the user must paste into, and one that needs a server running are
+    // three different outcomes and must not read the same.
+    #[test]
+    fn the_badge_distinguishes_write_from_paste_from_http() {
+        let writable = client("Cursor", Some(PathBuf::from("/nope/mcp.json")), Wire::Stdio);
+        assert!(client_label(&writable).contains("[writable]"));
+
+        let paste = client("Xcode", None, Wire::Stdio);
+        assert!(client_label(&paste).contains("[copy snippet]"));
+
+        // HTTP wins even with a writable path: the config alone does nothing
+        // until `drengr mcp --http` is running.
+        let http = client(
+            "Android Studio",
+            Some(PathBuf::from("/nope/x.json")),
+            Wire::Http(7878),
+        );
+        assert!(client_label(&http).contains("[HTTP]"));
+    }
+
+    #[test]
+    fn a_host_we_cannot_find_is_marked_not_detected() {
+        let missing = client(
+            "Cursor",
+            Some(PathBuf::from("/definitely/not/here.json")),
+            Wire::Stdio,
+        );
+        assert!(
+            client_label(&missing).contains("(not detected)"),
+            "an absent host must say so, or the user picks it and nothing happens"
+        );
+    }
+
+    // Wiring nothing is a real ending, not a crash and not a success: the user
+    // may have run this only to get a device up.
+    #[test]
+    fn wiring_nothing_is_reported_as_no_client_not_complete() {
+        assert_eq!(outcome_for(&[]), "no_client");
+        assert_eq!(outcome_for(&["Cursor".to_string()]), "complete");
+        assert_eq!(outcome_for(&["Xcode (manual)".to_string()]), "complete");
+    }
 }

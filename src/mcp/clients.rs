@@ -36,7 +36,6 @@ impl Client {
         self.path.is_some()
     }
 
-    /// The `{"mcpServers": {"drengr": …}}` snippet for this host.
     /// The snippet to print for a host we have no entry for. Built here rather
     /// than by reaching into a named vendor's catalog entry, which coupled
     /// "generic" to whatever Claude Desktop happened to need.
@@ -53,6 +52,7 @@ impl Client {
         .config_json(android_home)
     }
 
+    /// The `{"mcpServers": {"drengr": …}}` snippet for this host.
     pub fn config_json(&self, android_home: Option<&str>) -> String {
         match self.wire {
             Wire::Http(port) => format!(
