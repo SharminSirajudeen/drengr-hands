@@ -1,0 +1,26 @@
+# What the dependency tree is allowed to be, now that this crate is MIT.
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unlicense",
+    "0BSD",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+    # File-level copyleft. Fine to link and redistribute under MIT as long as
+    # the crate's own files are not modified, which they are not.
+    "MPL-2.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "allow"
+
+[advisories]
+ignore = []

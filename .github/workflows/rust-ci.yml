@@ -53,17 +53,24 @@ jobs:
       # A runner has no device. The Android end-to-end suite stays behind its
       # `android-e2e` feature and the iOS and MITM tests keep their `#[ignore]`,
       # so default features are the whole of what can run here.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
       - name: Build
         run: cargo build --all-targets --locked
 
       - name: Test
         run: cargo test --locked
 
-      # Reports, does not gate. src/ carries a clippy backlog that predates this
-      # workflow, so `-D warnings` would paint every run red on arrival and teach
-      # everyone to ignore it. Clear the backlog in src/ (`cargo clippy --fix
-      # --all-targets --allow-dirty`, then the handful that need a human), delete
-      # this one line, and clippy becomes a real gate.
       - name: Clippy
-        continue-on-error: true
         run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Format
+        run: cargo fmt --check
+
+      # The crate went from a proprietary licence to MIT. Nothing had ever
+      # checked what the dependency tree permits, and an MIT repo that links a
+      # copyleft crate is a licensing problem nobody notices until it matters.
+      - name: Licences
+        run: cargo deny check licenses
