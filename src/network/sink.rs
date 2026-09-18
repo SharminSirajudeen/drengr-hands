@@ -22,14 +22,17 @@ const MAX_EVENTS: usize = 2000;
 #[serde(rename_all = "snake_case")]
 pub enum NetworkSource {
     Logcat,
-    Sdk,
+    /// An in-app reporter speaking the protocol in `crate::sdk::messages`.
+    /// Drengr's own analytics SDK is one such sender; anything that speaks the
+    /// wire format is another.
+    InApp,
 }
 
 impl NetworkSource {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Logcat => "logcat",
-            Self::Sdk => "sdk",
+            Self::InApp => "in_app",
         }
     }
 
@@ -38,7 +41,7 @@ impl NetworkSource {
     pub fn fidelity(&self) -> &'static str {
         match self {
             Self::Logcat => "URL, method, status and duration from the app's own OkHttp log lines, plus the response body only when the app logs at BODY level. Never request headers, never the request body.",
-            Self::Sdk => "URL, method, status, duration and byte sizes reported by the in-app Drengr SDK, captured inside the app above TLS. Headers and bodies are optional on this wire, so an entry carrying no headers and no bodies came from an SDK build that does not send them, not from a format that cannot.",
+            Self::InApp => "URL, method, status, duration and byte sizes reported by a reporter running inside the app, captured above TLS — so it survives certificate pinning and needs no proxy and no CA. Headers and bodies are optional on this wire, so an entry carrying no headers and no bodies came from a sender that does not report them, not from a format that cannot.",
         }
     }
 }
@@ -251,7 +254,7 @@ pub fn summarize(entries: &[SinkEntry]) -> Value {
 pub fn provenance(entries: &[SinkEntry]) -> (Value, Value) {
     let mut counts = serde_json::Map::new();
     let mut legend = serde_json::Map::new();
-    for source in [NetworkSource::Logcat, NetworkSource::Sdk] {
+    for source in [NetworkSource::Logcat, NetworkSource::InApp] {
         let of_source: Vec<&SinkEntry> = entries.iter().filter(|e| e.source == source).collect();
         if of_source.is_empty() {
             continue;
@@ -311,11 +314,11 @@ mod tests {
     fn two_entries_from_one_source_state_their_own_fidelity() {
         let sink = NetworkSink::new();
         sink.push(
-            NetworkSource::Sdk,
+            NetworkSource::InApp,
             BodyTruncation::None,
             with_bodies("/new", 1),
         );
-        sink.push(NetworkSource::Sdk, BodyTruncation::None, event("/old", 2));
+        sink.push(NetworkSource::InApp, BodyTruncation::None, event("/old", 2));
 
         let snap = sink.snapshot();
         let bearing = snap[0].fidelity();
@@ -339,7 +342,7 @@ mod tests {
     fn a_truncated_entry_says_so_in_its_own_fidelity() {
         let sink = NetworkSink::new();
         sink.push(
-            NetworkSource::Sdk,
+            NetworkSource::InApp,
             BodyTruncation::Request,
             with_bodies("/x", 1),
         );
@@ -354,15 +357,15 @@ mod tests {
     fn the_legend_counts_the_bodies_the_batch_actually_holds() {
         let sink = NetworkSink::new();
         sink.push(
-            NetworkSource::Sdk,
+            NetworkSource::InApp,
             BodyTruncation::None,
             with_bodies("/a", 1),
         );
-        sink.push(NetworkSource::Sdk, BodyTruncation::None, event("/b", 2));
+        sink.push(NetworkSource::InApp, BodyTruncation::None, event("/b", 2));
 
         let (counts, legend) = provenance(&sink.snapshot());
-        assert_eq!(counts["sdk"], 2);
-        let sdk = legend["sdk"].as_str().unwrap();
+        assert_eq!(counts["in_app"], 2);
+        let sdk = legend["in_app"].as_str().unwrap();
         assert!(
             sdk.contains("1 of 2 entries here carry a body"),
             "got: {sdk}"
@@ -377,8 +380,12 @@ mod tests {
     fn every_entry_keeps_the_source_that_produced_it() {
         let sink = NetworkSink::new();
         sink.push(NetworkSource::Logcat, BodyTruncation::None, event("/a", 1));
-        sink.push(NetworkSource::Sdk, BodyTruncation::None, event("/b", 2));
-        sink.push(NetworkSource::Sdk, BodyTruncation::Response, event("/c", 3));
+        sink.push(NetworkSource::InApp, BodyTruncation::None, event("/b", 2));
+        sink.push(
+            NetworkSource::InApp,
+            BodyTruncation::Response,
+            event("/c", 3),
+        );
 
         let snap = sink.snapshot();
         let sources: Vec<NetworkSource> = snap.iter().map(|e| e.source).collect();
@@ -386,8 +393,8 @@ mod tests {
             sources,
             vec![
                 NetworkSource::Logcat,
-                NetworkSource::Sdk,
-                NetworkSource::Sdk
+                NetworkSource::InApp,
+                NetworkSource::InApp
             ],
             "the sink must not flatten three fidelities into one"
         );
@@ -398,7 +405,7 @@ mod tests {
     fn summary_reports_source_and_truncation_per_call() {
         let sink = NetworkSink::new();
         sink.push(
-            NetworkSource::Sdk,
+            NetworkSource::InApp,
             BodyTruncation::Both,
             event("https://api.example.com/x", 1),
         );
@@ -410,7 +417,7 @@ mod tests {
 
         let calls = summarize(&sink.snapshot());
         let arr = calls.as_array().unwrap();
-        assert_eq!(arr[0]["source"], "sdk");
+        assert_eq!(arr[0]["source"], "in_app");
         assert_eq!(arr[0]["truncated"], "both");
         assert_eq!(arr[0]["url"], "api.example.com/x");
         assert_eq!(arr[1]["source"], "logcat");
@@ -430,12 +437,12 @@ mod tests {
         // legend states what the batch actually carries.
         let (counts, legend) = provenance(&sink.snapshot());
         assert_eq!(counts["logcat"], 2);
-        assert!(counts.get("sdk").is_none());
+        assert!(counts.get("in_app").is_none());
         assert!(legend["logcat"]
             .as_str()
             .unwrap()
             .contains("Never request headers"));
-        assert!(legend.get("sdk").is_none());
+        assert!(legend.get("in_app").is_none());
     }
 
     #[test]
@@ -446,7 +453,11 @@ mod tests {
             BodyTruncation::None,
             event("/old", 100),
         );
-        sink.push(NetworkSource::Sdk, BodyTruncation::None, event("/new", 200));
+        sink.push(
+            NetworkSource::InApp,
+            BodyTruncation::None,
+            event("/new", 200),
+        );
 
         let window = sink.since(150);
         assert_eq!(window.len(), 1);
@@ -457,11 +468,11 @@ mod tests {
     fn drain_removes_one_source_and_keeps_the_others_in_order() {
         let sink = NetworkSink::new();
         sink.push(NetworkSource::Logcat, BodyTruncation::None, event("/l1", 1));
-        sink.push(NetworkSource::Sdk, BodyTruncation::None, event("/m1", 2));
+        sink.push(NetworkSource::InApp, BodyTruncation::None, event("/m1", 2));
         sink.push(NetworkSource::Logcat, BodyTruncation::None, event("/l2", 3));
-        sink.push(NetworkSource::Sdk, BodyTruncation::None, event("/m2", 4));
+        sink.push(NetworkSource::InApp, BodyTruncation::None, event("/m2", 4));
 
-        let drained = sink.drain(NetworkSource::Sdk);
+        let drained = sink.drain(NetworkSource::InApp);
         assert_eq!(drained.len(), 2);
         assert_eq!(drained[0].event.url, "/m1");
 
@@ -477,7 +488,7 @@ mod tests {
         let sink = NetworkSink::new();
         for i in 0..(MAX_EVENTS + 50) {
             sink.push(
-                NetworkSource::Sdk,
+                NetworkSource::InApp,
                 BodyTruncation::None,
                 event(&format!("/{i}"), i as u64),
             );
@@ -490,12 +501,12 @@ mod tests {
     #[test]
     fn entry_json_carries_source_beside_the_event_fields() {
         let entry = SinkEntry {
-            source: NetworkSource::Sdk,
+            source: NetworkSource::InApp,
             truncated: BodyTruncation::Request,
             event: event("/api", 7),
         };
         let json = serde_json::to_value(&entry).unwrap();
-        assert_eq!(json["source"], "sdk");
+        assert_eq!(json["source"], "in_app");
         assert_eq!(json["truncated"], "request");
         assert_eq!(json["url"], "/api");
     }

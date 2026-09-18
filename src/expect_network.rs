@@ -3,7 +3,7 @@
 //! The load-bearing rule here is that "did not match" and "could not observe"
 //! are different answers. `NetworkSource` fidelity differs per source: the SDK
 //! wire format carries no bodies at all, logcat carries no request body, and
-//! only the in-app SDK carries both. A `body_includes` expectation checked against a
+//! only an in-app reporter carries both. A `body_includes` expectation checked against a
 //! source that cannot see bodies must say so, because reporting it as a plain
 //! failure blames the app for the capture layer's blindness.
 
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn a_plain_url_match_is_met() {
         let entries = vec![entry(
-            NetworkSource::Sdk,
+            NetworkSource::InApp,
             "https://x.com/v1/checkout",
             "POST",
             200,
@@ -377,7 +377,7 @@ mod tests {
     #[test]
     fn no_matching_request_is_a_real_failure() {
         let entries = vec![entry(
-            NetworkSource::Sdk,
+            NetworkSource::InApp,
             "https://x.com/v1/cart",
             "POST",
             200,
@@ -390,7 +390,7 @@ mod tests {
     #[test]
     fn body_check_against_the_sdk_source_is_unobservable_not_failed() {
         let entries = vec![entry(
-            NetworkSource::Sdk,
+            NetworkSource::InApp,
             "https://x.com/v1/checkout",
             "POST",
             200,
@@ -422,7 +422,12 @@ mod tests {
     #[test]
     fn body_present_and_matching_is_met() {
         let entries = vec![with_response_body(
-            entry(NetworkSource::Sdk, "https://x.com/v1/checkout", "POST", 200),
+            entry(
+                NetworkSource::InApp,
+                "https://x.com/v1/checkout",
+                "POST",
+                200,
+            ),
             r#"{"event":"checkout_completed","revenue":42.5}"#,
         )];
         let mut e = expect("*/v1/checkout");
@@ -433,7 +438,12 @@ mod tests {
     #[test]
     fn body_present_and_absent_needle_is_a_real_failure() {
         let entries = vec![with_response_body(
-            entry(NetworkSource::Sdk, "https://x.com/v1/checkout", "POST", 200),
+            entry(
+                NetworkSource::InApp,
+                "https://x.com/v1/checkout",
+                "POST",
+                200,
+            ),
             r#"{"event":"cart_viewed"}"#,
         )];
         let mut e = expect("*/v1/checkout");
@@ -444,7 +454,12 @@ mod tests {
     #[test]
     fn a_truncated_body_that_misses_is_inconclusive_not_failed() {
         let mut cut = with_response_body(
-            entry(NetworkSource::Sdk, "https://x.com/v1/checkout", "POST", 200),
+            entry(
+                NetworkSource::InApp,
+                "https://x.com/v1/checkout",
+                "POST",
+                200,
+            ),
             r#"{"event":"cart_"#,
         );
         cut.truncated = BodyTruncation::Response;
@@ -458,8 +473,18 @@ mod tests {
     #[test]
     fn times_counts_exactly() {
         let entries = vec![
-            entry(NetworkSource::Sdk, "https://x.com/v1/checkout", "POST", 200),
-            entry(NetworkSource::Sdk, "https://x.com/v1/checkout", "POST", 200),
+            entry(
+                NetworkSource::InApp,
+                "https://x.com/v1/checkout",
+                "POST",
+                200,
+            ),
+            entry(
+                NetworkSource::InApp,
+                "https://x.com/v1/checkout",
+                "POST",
+                200,
+            ),
         ];
         let mut e = expect("*/v1/checkout");
         e.times = Some(1);
@@ -471,7 +496,7 @@ mod tests {
     #[test]
     fn times_zero_asserts_absence() {
         let entries = vec![entry(
-            NetworkSource::Sdk,
+            NetworkSource::InApp,
             "https://x.com/v1/cart",
             "POST",
             200,
@@ -524,7 +549,12 @@ mod tests {
     #[test]
     fn a_known_status_that_differs_is_still_a_real_failure() {
         // The fix must not swallow genuine mismatches.
-        let e0 = entry(NetworkSource::Sdk, "https://x.com/v1/checkout", "POST", 500);
+        let e0 = entry(
+            NetworkSource::InApp,
+            "https://x.com/v1/checkout",
+            "POST",
+            500,
+        );
         let mut e = expect("*/v1/checkout");
         e.status = Some(200);
         assert!(evaluate(&e, &[e0]).fails_task());
@@ -533,7 +563,12 @@ mod tests {
     #[test]
     fn a_real_match_alongside_a_blind_one_still_passes() {
         let blind = entry(NetworkSource::Logcat, "https://x.com/v1/checkout", "?", 200);
-        let good = entry(NetworkSource::Sdk, "https://x.com/v1/checkout", "POST", 200);
+        let good = entry(
+            NetworkSource::InApp,
+            "https://x.com/v1/checkout",
+            "POST",
+            200,
+        );
         let mut e = expect("*/v1/checkout");
         e.method = Some("POST".into());
         assert_eq!(evaluate(&e, &[blind, good]), ExpectOutcome::Met);
@@ -542,8 +577,18 @@ mod tests {
     #[test]
     fn method_and_status_narrow_the_candidates() {
         let entries = vec![
-            entry(NetworkSource::Sdk, "https://x.com/v1/checkout", "GET", 200),
-            entry(NetworkSource::Sdk, "https://x.com/v1/checkout", "POST", 500),
+            entry(
+                NetworkSource::InApp,
+                "https://x.com/v1/checkout",
+                "GET",
+                200,
+            ),
+            entry(
+                NetworkSource::InApp,
+                "https://x.com/v1/checkout",
+                "POST",
+                500,
+            ),
         ];
         let mut e = expect("*/v1/checkout");
         e.method = Some("post".into());

@@ -68,6 +68,25 @@ list, or `http://localhost:4723`. The named ones only exist so their hub URL and
 credential env vars are filled in for you; underneath they are all the same
 WebDriver path, so a provider we have never heard of works the same way.
 
+## Let the app report its own traffic
+
+Log-based capture (`logcat` on Android, `CFNetwork` on iOS) gives URLs, methods,
+statuses and durations — never request headers, never bodies. To get those, the
+app can report them itself:
+
+```bash
+drengr sdk-server        # listens on 127.0.0.1:7879
+```
+
+Anything inside the app that speaks the JSON protocol in `src/sdk/messages.rs`
+can stream what it sees. Because it runs inside the process, it captures **above
+TLS** — no proxy, no CA to install, and it survives certificate pinning, which is
+where proxy-based tools stop working.
+
+`drengr query network` tags every call with the source that saw it and states
+what that source can and cannot observe, so a missing body reads as "not
+reported" rather than "not sent".
+
 ## Tests in CI
 
 ```yaml

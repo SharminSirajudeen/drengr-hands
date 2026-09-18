@@ -62,7 +62,7 @@ pub struct McpHandlers {
     /// Active session for recording test steps + network calls.
     session: Arc<Mutex<Option<Session>>>,
 
-    /// The one network sink. Logcat polling and the in-app SDK
+    /// The one network sink. Logcat polling and any in-app reporter
     /// all push here, each event tagged with the source that produced it, and
     /// `drengr_query(network)` reads it. Before this was shared, the SDK's own
     /// store was orphaned and no SDK event could ever be read back.
@@ -265,14 +265,14 @@ impl McpHandlers {
         }
     }
 
-    /// Construct and start the in-app SDK listener (production).
+    /// Construct and start the in-app reporter listener (production).
     pub fn with_sdk_listener() -> Self {
         let handlers = Self::new();
         handlers.spawn_sdk_listener();
         handlers
     }
 
-    /// Serve the in-app SDK on its TCP port, pushing what it reports into the
+    /// Serve the in-app reporter protocol on its TCP port, pushing what it reports into the
     /// same sink `drengr_query(network)` reads. This is the only production
     /// constructor, so there is one place this can be forgotten rather than one
     /// per server transport. Fail-open: the port already being taken (a second

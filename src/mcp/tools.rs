@@ -326,7 +326,7 @@ fn drengr_query_definition() -> Value {
                 "source": {
                     "type": "string",
                     "enum": ["logcat", "sdk"],
-                    "description": "Return only calls seen by one capture source. For question='network'. 'logcat': the app's own OkHttp log lines, no request headers or body. 'sdk': the in-app Drengr SDK, metadata only. Omit to get both, each call tagged with its source."
+                    "description": "Return only calls seen by one capture source. For question='network'. 'logcat': the app's own OkHttp log lines, no request headers or body. 'in_app': a reporter inside the app, captured above TLS. Omit to get both, each call tagged with its source."
                 },
                 "conditions": {
                     "type": "string",

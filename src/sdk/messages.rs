@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::network::sink::BodyTruncation;
 
-/// Messages received from the Drengr SDK embedded in the target app.
+/// The wire protocol an in-app reporter speaks to drengr over localhost.
+/// Drengr's own analytics SDK is one sender; any app that speaks this format
+/// can stream what it sees, captured above TLS with no proxy and no CA.
 /// Length-prefixed JSON protocol (4-byte u32 big-endian + JSON body).
 /// Unknown fields are rejected so a hostile or version-skewed client can't
 /// smuggle extra payload past us under a known tag.

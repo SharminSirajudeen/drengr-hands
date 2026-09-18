@@ -368,7 +368,7 @@ async fn handle_sdk_message(
             // The one sink. This push is the whole point: before it, every
             // event four shipped SDKs sent landed in a store nothing read.
             sink.push(
-                NetworkSource::Sdk,
+                NetworkSource::InApp,
                 truncated,
                 NetworkEvent {
                     url,
@@ -542,7 +542,7 @@ mod tests {
             1,
             "an SDK event that reaches no sink is unreadable"
         );
-        assert_eq!(entries[0].source, NetworkSource::Sdk);
+        assert_eq!(entries[0].source, NetworkSource::InApp);
         assert_eq!(entries[0].event.url, "/api/login");
         assert_eq!(entries[0].event.status, Some(200));
     }

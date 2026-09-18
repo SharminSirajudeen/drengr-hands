@@ -276,7 +276,7 @@ pub(crate) fn now_ms() -> u64 {
 /// all answer "how many failed requests". They read different data:
 /// `session` reads `SessionStep.network_errors`, the other two read the shared
 /// sink. `do_action` passed `record_step` only the logcat calls, so on an app
-/// running the Drengr SDK — capture above TLS, the one that survives pinning —
+/// running an in-app reporter — capture above TLS, the one that survives pinning —
 /// `session` reported fewer errors than the other two, or none.
 ///
 /// The unit test below fixes the counting. This guard fixes the WIRING, which is
@@ -428,7 +428,7 @@ mod tests {
     }
 
     /// The defect this change exists for. `drengr_query(session)` must count a
-    /// failure the in-app SDK saw exactly the same as one logcat saw, because
+    /// failure the in-app reporter saw exactly the same as one logcat saw, because
     /// `network` and `analyze` already do and a user comparing the three numbers
     /// is entitled to one answer.
     #[test]
@@ -441,7 +441,7 @@ mod tests {
             true,
             vec![
                 entry(NetworkSource::Logcat, "/api/charge", 500, None),
-                entry(NetworkSource::Sdk, "/api/receipt", 500, None),
+                entry(NetworkSource::InApp, "/api/receipt", 500, None),
             ],
             None,
         );
@@ -454,7 +454,7 @@ mod tests {
         let sources: Vec<NetworkSource> =
             s.steps[0].network_errors.iter().map(|e| e.source).collect();
         assert!(
-            sources.contains(&NetworkSource::Sdk),
+            sources.contains(&NetworkSource::InApp),
             "the SDK failure must be attributed to the SDK"
         );
     }
@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn a_call_with_no_captured_status_is_not_counted_as_an_error() {
         let mut s = Session::new("com.app", "dev1");
-        let mut unknown = entry(NetworkSource::Sdk, "/api/silent", 500, None);
+        let mut unknown = entry(NetworkSource::InApp, "/api/silent", 500, None);
         unknown.event.status = None;
         s.record_step(1, "tap", "A", true, vec![unknown], None);
         assert_eq!(s.total_network_errors(), 0);
