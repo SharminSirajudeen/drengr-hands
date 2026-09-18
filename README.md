@@ -1,5 +1,9 @@
 # drengr-hands
 
+[![CI](https://github.com/SharminSirajudeen/drengr-hands/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/SharminSirajudeen/drengr-hands/actions/workflows/rust-ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/drengr-hands.svg)](https://crates.io/crates/drengr-hands)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Eyes and hands for AI agents on Android and iOS.**
 
 Your agent already has a brain. This gives it a device.

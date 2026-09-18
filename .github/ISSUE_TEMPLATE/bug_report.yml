@@ -1,0 +1,43 @@
+name: Bug report
+description: Something drengr did on a real device that it should not have
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, and what the device did.
+      placeholder: |
+        $ drengr do tap --element 7
+        ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: drengr doctor
+      description: Paste the output. It names the toolchain versions this depends on.
+      render: text
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Device
+      options: [Android physical, Android emulator, iOS simulator, iOS physical, Cloud (BrowserStack/Sauce)]
+    validations:
+      required: true
+  - type: textarea
+    id: bundle
+    attributes:
+      label: Diagnostic bundle (optional)
+      description: >
+        If a run got stuck, `drengr diag list` names one. It is redacted on disk;
+        read it with `drengr diag show <run-id>` before pasting.
+      render: json
