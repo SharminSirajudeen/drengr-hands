@@ -351,72 +351,78 @@ pub(crate) fn build_judge_body(provider: &LlmProvider, model: &str, prompt: &str
 }
 
 fn build_ollama_schema(max_element: usize, allow_wait: bool) -> Value {
-    const ACTIONS_WITH_WAIT: &[&str] = &[
-        "tap",
-        "type",
-        "scroll",
-        "long_press",
-        "press_back",
-        "wait",
-        "open_app",
-        "draw_path",
-        "done",
-    ];
-    const ACTIONS_NO_WAIT: &[&str] = &[
-        "tap",
-        "type",
-        "scroll",
-        "long_press",
-        "press_back",
-        "open_app",
-        "draw_path",
-        "done",
-    ];
-    let action_enum: &[&str] = if allow_wait {
-        ACTIONS_WITH_WAIT
-    } else {
-        ACTIONS_NO_WAIT
-    };
-
-    let mut properties = json!({
-        "action": {
-            "type": "string",
-            "enum": action_enum
-        },
-        "text": {"type": "string"},
-        "name": {"type": "string"},
-        "direction": {
-            "type": "string",
-            "enum": ["up", "down", "left", "right"]
-        },
-        "points": {
-            "type": "array",
-            "items": {
-                "type": "array",
-                "items": {"type": "integer"},
-                "minItems": 2,
-                "maxItems": 2
-            }
-        },
-        "duration_ms": {"type": "integer", "minimum": 0},
-        "reasoning": {"type": "string"},
-        "done": {"type": "boolean"}
-    });
-
-    if max_element > 0 {
-        properties["element"] = json!({
-            "type": "integer",
-            "minimum": 1,
-            "maximum": max_element
+    // One branch per action, each requiring exactly what its executor reads. A
+    // single flat object with `required: [action, reasoning, done]` let the model
+    // emit `open_app` with no `name`; the executor rejected it, the prompt was
+    // unchanged, and the run burned its whole step budget re-proposing it. With a
+    // branch per action the grammar cannot express that action at all — the model
+    // either supplies the parameter or picks a different action.
+    fn branch(action: &str, required: &[&str], props: Value) -> Value {
+        let mut properties = json!({
+            "action": {"const": action},
+            "reasoning": {"type": "string"},
+            "done": {"type": "boolean"}
         });
+        if let (Some(dst), Some(src)) = (properties.as_object_mut(), props.as_object()) {
+            for (k, v) in src {
+                dst.insert(k.clone(), v.clone());
+            }
+        }
+        let mut req: Vec<&str> = vec!["action", "reasoning", "done"];
+        req.extend_from_slice(required);
+        json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": req,
+            "properties": properties
+        })
     }
 
-    json!({
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["action", "reasoning", "done"],
-        "properties": properties
-    })
+    let element = json!({
+        "element": {"type": "integer", "minimum": 1, "maximum": max_element.max(1)}
+    });
+
+    let mut branches = vec![];
+    // No addressable elements means no element to name, so those actions are not
+    // offered rather than offered and guaranteed to fail.
+    if max_element > 0 {
+        branches.push(branch("tap", &["element"], element.clone()));
+        branches.push(branch("long_press", &["element"], element.clone()));
+    }
+    branches.push(branch(
+        "type",
+        &["text"],
+        json!({"text": {"type": "string"}, "element": element["element"].clone()}),
+    ));
+    branches.push(branch(
+        "scroll",
+        &["direction"],
+        json!({"direction": {"type": "string", "enum": ["up", "down", "left", "right"]}}),
+    ));
+    branches.push(branch("press_back", &[], json!({})));
+    if allow_wait {
+        branches.push(branch("wait", &[], json!({})));
+    }
+    branches.push(branch(
+        "open_app",
+        &["name"],
+        json!({"name": {"type": "string"}}),
+    ));
+    branches.push(branch(
+        "draw_path",
+        &["points"],
+        json!({
+            "points": {
+                "type": "array",
+                "minItems": 2,
+                "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "integer"}}
+            },
+            "duration_ms": {"type": "integer", "minimum": 0}
+        }),
+    ));
+    branches.push(branch("done", &[], json!({})));
+
+    json!({ "anyOf": branches })
 }
 
 /// Resolve the API key from environment variables.
@@ -499,6 +505,28 @@ fn truncate(s: &str, max: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Action names the branch schema offers, for the tests below.
+    fn schema_actions(schema: &Value) -> Vec<String> {
+        schema["anyOf"]
+            .as_array()
+            .expect("anyOf branches")
+            .iter()
+            .filter_map(|b| {
+                b["properties"]["action"]["const"]
+                    .as_str()
+                    .map(String::from)
+            })
+            .collect()
+    }
+
+    /// The branch for one action, if it is offered.
+    fn schema_branch<'a>(schema: &'a Value, action: &str) -> Option<&'a Value> {
+        schema["anyOf"]
+            .as_array()?
+            .iter()
+            .find(|b| b["properties"]["action"]["const"] == action)
+    }
 
     #[test]
     fn test_provider_parsing() {
@@ -671,36 +699,27 @@ mod tests {
     #[test]
     fn test_ollama_schema_field_present() {
         let schema = build_ollama_schema(5, true);
-        let actions = schema["properties"]["action"]["enum"]
-            .as_array()
-            .expect("action enum array");
-        let action_strs: Vec<&str> = actions.iter().filter_map(|v| v.as_str()).collect();
-        assert!(action_strs.contains(&"tap"));
-        assert!(!action_strs.contains(&"click"));
-        assert_eq!(schema["properties"]["element"]["maximum"].as_u64(), Some(5));
+        let actions = schema_actions(&schema);
+        assert!(actions.contains(&"tap".to_string()));
+        assert!(!actions.contains(&"click".to_string()));
     }
 
     #[test]
     fn test_ollama_schema_no_element_when_zero() {
+        // Nothing to address, so the element actions are not offered at all.
         let schema = build_ollama_schema(0, true);
-        let props = schema["properties"].as_object().expect("properties object");
-        assert!(!props.contains_key("element"));
+        let actions = schema_actions(&schema);
+        assert!(!actions.contains(&"tap".to_string()));
+        assert!(!actions.contains(&"long_press".to_string()));
     }
 
     #[test]
     fn test_allow_wait_false_drops_wait_from_schema() {
         let schema = build_ollama_schema(3, false);
-        let actions = schema["properties"]["action"]["enum"]
-            .as_array()
-            .expect("action enum array");
-        let action_strs: Vec<&str> = actions.iter().filter_map(|v| v.as_str()).collect();
         assert!(
-            !action_strs.contains(&"wait"),
-            "wait must be excluded from schema enum when allow_wait=false"
+            !schema_actions(&schema).contains(&"wait".to_string()),
+            "wait must be absent when the caller disallows it"
         );
-        assert!(action_strs.contains(&"tap"));
-        assert!(action_strs.contains(&"scroll"));
-        assert!(action_strs.contains(&"done"));
     }
 
     #[test]
@@ -733,12 +752,35 @@ mod tests {
 
     #[test]
     fn test_allow_wait_true_keeps_wait_in_schema() {
-        let schema = build_ollama_schema(3, true);
-        let actions = schema["properties"]["action"]["enum"]
-            .as_array()
-            .expect("action enum array");
-        let action_strs: Vec<&str> = actions.iter().filter_map(|v| v.as_str()).collect();
-        assert!(action_strs.contains(&"wait"));
+        assert!(schema_actions(&build_ollama_schema(3, true)).contains(&"wait".to_string()));
+    }
+
+    /// The defect this shape exists to prevent: a flat schema let the model emit
+    /// open_app with no name, the executor rejected it, and the run burned every
+    /// remaining step re-proposing the same thing.
+    #[test]
+    fn every_action_branch_requires_the_parameters_its_executor_reads() {
+        let schema = build_ollama_schema(50, true);
+        for (action, needed) in [
+            ("open_app", "name"),
+            ("tap", "element"),
+            ("long_press", "element"),
+            ("type", "text"),
+            ("scroll", "direction"),
+            ("draw_path", "points"),
+        ] {
+            let branch = schema_branch(&schema, action).expect(action);
+            let required: Vec<&str> = branch["required"]
+                .as_array()
+                .expect("required")
+                .iter()
+                .filter_map(|v| v.as_str())
+                .collect();
+            assert!(
+                required.contains(&needed),
+                "{action} does not require {needed}, so the model may omit it"
+            );
+        }
     }
 
     #[test]

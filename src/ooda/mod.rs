@@ -146,6 +146,8 @@ pub async fn run_ooda(
         Vec::with_capacity(config.max_steps.min(HISTORY_PREALLOC_CAP));
     let device_id = &config.device_id;
     let mut detector = progress::ProgressDetector::new(&config.task);
+    // Signature of the previous rejected action, to catch a model looping on one.
+    let mut last_rejection: Option<String> = None;
     let mut judge_ever_fired = false;
     let mut next_step_progress_hint: Option<String> = None;
     let mut outcome_builder = RunOutcomeBuilder::new(
@@ -513,6 +515,32 @@ pub async fn run_ooda(
                 // is byte-identical and the model re-proposes the same invalid
                 // action every step until the budget is gone.
                 tracing::warn!("Action rejected at step {}: {}", step, e);
+                // Feeding it back is necessary but not sufficient: a small model
+                // will re-propose the same action regardless. Two identical
+                // rejections in a row is not a run that needs more steps, it is a
+                // run that is not going to recover, so end it with the reason
+                // rather than spending the remaining budget re-reading it.
+                let signature = format!("{}|{}", decision.action.canonical_name(), e);
+                if last_rejection.as_deref() == Some(signature.as_str()) {
+                    tracing::warn!("Same action rejected twice in a row — ending the run");
+                    finalize_run(
+                        outcome_builder,
+                        &detector,
+                        &history,
+                        &config.app_package,
+                        &last_activity,
+                        RunOutcomeKind::ProgressStuck,
+                        step,
+                    );
+                    return Ok(OodaResult {
+                        task: config.task.clone(),
+                        success: false,
+                        steps: step,
+                        final_reasoning: format!("Stuck: {e} — proposed twice in a row"),
+                        history,
+                    });
+                }
+                last_rejection = Some(signature);
                 history.push(OodaStepSummary {
                     step,
                     action: format!("{} (rejected)", decision.action.canonical_name()),

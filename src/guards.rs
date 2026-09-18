@@ -148,7 +148,7 @@ mod tests {
             .split("Action rejected at step")
             .nth(1)
             .expect("the rejection arm still logs a warning");
-        let arm: String = arm.chars().take(600).collect();
+        let arm: String = arm.chars().take(2000).collect();
         let needle = format!("history{}push", ".");
         assert!(
             arm.contains(needle.as_str()),
@@ -249,6 +249,28 @@ mod tests {
         assert!(
             missing.is_empty(),
             "documented drengr_do parameters the CLI cannot send: {missing:?}"
+        );
+    }
+
+    /// A model that re-proposes an action the executor just refused will do it
+    /// again, and again, until the budget is gone. Feeding the rejection back is
+    /// necessary but not sufficient, so the loop ends the run on the second
+    /// identical rejection with that reason instead of "exceeded max steps".
+    #[test]
+    fn a_twice_rejected_action_ends_the_run() {
+        let src = std::fs::read_to_string(src_root().join("ooda/mod.rs")).expect("ooda/mod.rs");
+        let arm = src
+            .split("Action rejected at step")
+            .nth(1)
+            .expect("the rejection arm exists");
+        let arm: String = arm.chars().take(1400).collect();
+        assert!(
+            arm.contains("last_rejection"),
+            "the rejection arm does not compare against the previous rejection:\n{arm}"
+        );
+        assert!(
+            arm.contains("return Ok("),
+            "a repeated rejection does not end the run, so it burns the step budget:\n{arm}"
         );
     }
 }
