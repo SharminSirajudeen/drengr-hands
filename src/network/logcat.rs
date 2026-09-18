@@ -2,8 +2,8 @@ use crate::network::events::NetworkEvent;
 
 /// Parse OkHttp logcat output into NetworkEvent list.
 /// Expected format from `adb logcat -d -s okhttp.OkHttpClient:I`:
-///   --> POST https://api.example.com/path
-///   <-- 200 https://api.example.com/path (507ms)
+///   --> POST `https://api.example.com/path`
+///   `<-- 200 https://api.example.com/path (507ms)`
 ///   {"json":"body"}
 pub fn parse_okhttp_logcat(logcat: &str) -> Vec<NetworkEvent> {
     let mut events: Vec<NetworkEvent> = Vec::new();
@@ -111,8 +111,8 @@ pub fn parse_okhttp_logcat(logcat: &str) -> Vec<NetworkEvent> {
 
 /// Parse iOS CFNetwork/NSURLSession os_log output into NetworkEvent list.
 /// Expected format from `log show --predicate 'subsystem == "com.apple.CFNetwork"'`:
-///   Task <ID>.<ID> resuming, QOS(0x19) Blocking
-///   Task <ID>.<ID> received response, status 200 content K
+///   `Task <ID>.<ID> resuming, QOS(0x19) Blocking`
+///   `Task <ID>.<ID> received response, status 200 content K`
 pub fn parse_ios_network_log(log_output: &str) -> Vec<NetworkEvent> {
     let mut events: Vec<NetworkEvent> = Vec::new();
 

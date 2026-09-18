@@ -260,7 +260,7 @@ fn maps_dir() -> PathBuf {
     crate::paths::drengr_dir_or(".").join("maps")
 }
 
-/// Save screen map to .drengr/maps/<package>.json
+/// Save screen map to .drengr/maps/`<package>`.json
 pub fn save_screen_map(map: &ScreenMap) -> Result<PathBuf> {
     if !crate::validate::is_valid_package_name(&map.app) {
         anyhow::bail!("Invalid package name: {}", map.app);

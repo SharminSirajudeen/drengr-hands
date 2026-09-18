@@ -205,7 +205,7 @@ pub fn unchanged_streak(history: &[OodaStepSummary]) -> usize {
         .count()
 }
 
-/// Scan the last `lookback` history entries for "Scrolled <dir>" actions and
+/// Scan the last `lookback` history entries for `"Scrolled <dir>"` actions and
 /// return the unique directions that have been tried, in insertion order.
 pub fn tried_directions(history: &[OodaStepSummary], lookback: usize) -> Vec<&'static str> {
     let start = history.len().saturating_sub(lookback);

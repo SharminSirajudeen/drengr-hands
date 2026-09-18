@@ -429,13 +429,13 @@ pub trait DeviceTransport: Send + Sync {
     // ── Screen recording + live streaming ──────────────────────────────
 
     /// Start recording the device screen to a file. Returns the path
-    /// where the recording will be saved when [`stop_recording`] is called.
+    /// where the recording will be saved when `stop_recording` is called.
     ///
     /// - **iOS:** `xcrun simctl io <udid> recordVideo <path>` (works headlessly).
     /// - **Android:** `adb shell screenrecord /sdcard/drengr_<ts>.mp4` → `adb pull` on stop.
     ///
     /// The recording runs as a background process; the caller continues
-    /// running actions while the screen is captured. Call [`stop_recording`]
+    /// running actions while the screen is captured. Call `stop_recording`
     /// to finalize the file.
     ///
     /// Default: not supported.
@@ -474,7 +474,7 @@ pub fn create_transport(device: &DetectedDevice) -> Box<dyn DeviceTransport> {
     }
 }
 
-/// Parse "[left,top][right,bottom]" bounds string from UI tree XML.
+/// Parse a `"[left,top][right,bottom]"` bounds string from UI tree XML.
 pub fn parse_bounds(s: &str) -> Option<Bounds> {
     let nums: Vec<i32> = s
         .replace(['[', ']', ','], " ")

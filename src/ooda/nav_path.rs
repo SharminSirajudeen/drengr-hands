@@ -52,7 +52,7 @@ pub fn is_fresh(map: &ScreenMap) -> bool {
 }
 
 /// Classify a pure-nav task into a goal screen id. Conservative: fires only
-/// when the whole task is "<nav-verb> <screen name>" and the name resolves
+/// when the whole task is `"<nav-verb> <screen name>"` and the name resolves
 /// to exactly one screen in the map. Anything else → `None` (LLM decides).
 pub fn goal_screen_for_task(map: &ScreenMap, task: &str) -> Option<String> {
     if fast_path_disabled() {

@@ -262,7 +262,7 @@ pub struct McpConfig {
     pub adb_path: Option<String>,
     /// Custom xcrun binary path (iOS equivalent of adb_path).
     pub xcrun_path: Option<String>,
-    /// Serve MCP over streamable HTTP on 127.0.0.1:<port> instead of stdio.
+    /// Serve MCP over streamable HTTP on 127.0.0.1:`<port>` instead of stdio.
     pub http_port: Option<u16>,
 }
 

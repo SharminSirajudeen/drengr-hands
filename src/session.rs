@@ -193,7 +193,7 @@ impl Session {
         }
     }
 
-    /// Save session to ~/.drengr/sessions/<id>.json
+    /// Save session to `~/.drengr/sessions/<id>.json`
     pub fn save(&self) -> anyhow::Result<PathBuf> {
         let dir = session_dir()?;
         std::fs::create_dir_all(&dir)?;
