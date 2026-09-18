@@ -5,6 +5,41 @@ hands on mobile devices (Android + iOS).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.11.0 — 2026-09-19
+
+First release from the open-source repo. Drengr's actuator now lives at
+[drengr-hands](https://github.com/SharminSirajudeen/drengr-hands) under MIT.
+
+### Removed
+- **`drengr login`** and the licence/quota/telemetry machinery. There are no
+  accounts, no usage limits and no gating of any kind; nothing is sent anywhere.
+- **`drengr annotate`** and **`drengr diag share`**, which talked to servers this
+  binary no longer has.
+- `anti_debug` — refusing `lldb` and suppressing core dumps makes no sense in a
+  binary you have the source to.
+
+### Fixed
+- **`drengr do key` never worked from the CLI.** The flag was sent as `key`; the
+  handler reads `keycode`.
+- **iOS reported success for work it did not do**: unmapped key presses,
+  `dismiss_keyboard`, `pasteboard_set`, and `clear_app_data` all returned Ok
+  while doing nothing. `--reset` on iOS claimed a data wipe it never performed.
+- **`drengr look --format text` printed element numbers `drengr do --element n`
+  could not resolve**: the scene numbered 1..N while the annotator assigned the
+  stable ids that get persisted as tap targets.
+- **The decision schema let a model omit a parameter the executor requires**, so
+  a run could spend its whole step budget re-proposing an action that could never
+  execute. Each action branch now requires exactly what its executor reads.
+- **`drengr uninstall` knew four of eight MCP hosts**, leaving Drengr wired into
+  the rest, pointing at a binary it had just deleted.
+- An unknown `--format` fell through to the annotated image instead of erroring.
+- `unlock` advertised iOS, where it always failed.
+
+### Changed
+- `--cleanup-wda` is `--cleanup-runner`; the old spelling still works.
+- Cloud help lists every provider, plus any Appium hub URL — that was always
+  supported and only two were documented.
+
 ## 0.10.6 — 2026-08-01
 
 ### Fixed

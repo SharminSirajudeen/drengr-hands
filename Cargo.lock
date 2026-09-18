@@ -423,7 +423,7 @@ dependencies = [
 
 [[package]]
 name = "drengr-hands"
-version = "0.10.13"
+version = "0.11.0"
 dependencies = [
  "anyhow",
  "async-trait",
