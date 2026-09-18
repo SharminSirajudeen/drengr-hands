@@ -506,7 +506,7 @@ fn finish(
     eprintln!("    • Your own task:      drengr run --app <pkg> --task \"…\"");
     eprintln!("    • Re-check anytime:   drengr doctor");
     eprintln!();
-    eprintln!("  Optional — `drengr login` links your machines to a free account. Never required.");
+    eprintln!("  Drengr is MIT — github.com/SharminSirajudeen/drengr-hands");
     eprintln!();
     eprintln!("  🐉  Happy driving. — Sharmin");
     eprintln!();

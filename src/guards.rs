@@ -298,4 +298,72 @@ mod tests {
             );
         }
     }
+
+    /// Every command this binary names in its own output must exist. Three
+    /// separate strings survived the extraction pointing at commands that had
+    /// been deleted — including the welcome line every MCP user sees once, which
+    /// told them to run `drengr login`.
+    #[test]
+    fn no_string_names_a_subcommand_that_does_not_exist() {
+        let main = std::fs::read_to_string(src_root().join("main.rs")).expect("main.rs");
+        // The clap enum is the list of real commands; derive it rather than
+        // restate it, or this guard goes stale the way the strings did.
+        let commands: std::collections::BTreeSet<String> = main
+            .lines()
+            .filter_map(|l| {
+                let l = l.trim();
+                l.strip_suffix(" {")
+                    .or_else(|| l.strip_suffix(","))
+                    .filter(|n| {
+                        !n.is_empty()
+                            && n.chars().next().is_some_and(|c| c.is_ascii_uppercase())
+                            && n.chars().all(|c| c.is_ascii_alphanumeric())
+                    })
+                    .map(|n| {
+                        let mut out = String::new();
+                        for (i, c) in n.chars().enumerate() {
+                            if c.is_ascii_uppercase() && i > 0 {
+                                out.push('-');
+                            }
+                            out.push(c.to_ascii_lowercase());
+                        }
+                        out
+                    })
+            })
+            .collect();
+        assert!(
+            commands.contains("look") && commands.contains("doctor"),
+            "could not read the command list out of main.rs; this guard is blind"
+        );
+
+        let needle = format!("{}drengr ", "`");
+        let mut stale = Vec::new();
+        // This file quotes the very strings it hunts for, in the comment above.
+        for path in offenders(&["guards.rs"], &|line: &str| line.contains(needle.as_str())) {
+            let (rel, _) = path.split_once(':').unwrap_or((path.as_str(), ""));
+            let rel = rel.trim_start_matches("src/");
+            let src = std::fs::read_to_string(src_root().join(rel)).expect(rel);
+            for l in src.lines() {
+                for seg in l.split(needle.as_str()).skip(1) {
+                    // A flag is not a subcommand.
+                    if seg.starts_with('-') {
+                        continue;
+                    }
+                    let word: String = seg
+                        .chars()
+                        .take_while(|c| c.is_ascii_lowercase() || *c == '-')
+                        .collect();
+                    if word.len() > 2 && !commands.contains(&word) {
+                        stale.push(format!("{rel}: `drengr {word}`"));
+                    }
+                }
+            }
+        }
+        stale.sort();
+        stale.dedup();
+        assert!(
+            stale.is_empty(),
+            "strings naming commands that do not exist: {stale:#?}"
+        );
+    }
 }

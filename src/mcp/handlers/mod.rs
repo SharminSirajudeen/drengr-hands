@@ -287,7 +287,7 @@ impl McpHandlers {
             .swap(true, std::sync::atomic::Ordering::Relaxed)
             && claim_welcome_marker()
         {
-            let welcome = "✨ Drengr — eyes & hands for AI agents on mobile, by Sharmin Sirajudeen. (Optional: `drengr login` links machines to a free account — never required for local use.)";
+            let welcome = "✨ Drengr — eyes & hands for AI agents on mobile, by Sharmin Sirajudeen. MIT: github.com/SharminSirajudeen/drengr-hands";
             for content in &mut result.content {
                 if content.content_type == "text" {
                     if let Some(ref text) = content.text {
