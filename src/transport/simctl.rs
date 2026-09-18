@@ -930,10 +930,13 @@ impl DeviceTransport for SimctlTransport {
     }
 
     async fn dismiss_keyboard(&self) -> Result<()> {
-        tracing::debug!(
-            "keyboard_dismiss is a no-op in v0.6.0; OODA layer should tap outside the keyboard"
-        );
-        Ok(())
+        // Returning Ok here told the caller the keyboard was gone while it was
+        // still covering the screen, which is the failure the trait's own doc
+        // warns about. The runner exposes no dismiss, so say so.
+        anyhow::bail!(
+            "dismiss_keyboard is not supported on iOS — tap outside the keyboard, or send a \
+             return key into the focused field"
+        )
     }
 
     async fn install_app(&self, path: &str) -> Result<()> {
@@ -1230,10 +1233,18 @@ impl DeviceTransport for SimctlTransport {
             .stdin(std::process::Stdio::piped())
             .spawn()
             .context("spawn simctl pbcopy")?;
+        // Both of these were discarded, so a failed copy reported success and the
+        // next paste silently used whatever was on the pasteboard before.
         if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(text.as_bytes()).await.ok();
+            stdin
+                .write_all(text.as_bytes())
+                .await
+                .context("write to simctl pbcopy")?;
         }
-        let _ = child.wait().await;
+        let status = child.wait().await.context("wait for simctl pbcopy")?;
+        if !status.success() {
+            anyhow::bail!("simctl pbcopy failed: {status}");
+        }
         Ok(())
     }
 

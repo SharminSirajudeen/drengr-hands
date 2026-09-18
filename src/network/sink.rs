@@ -23,7 +23,6 @@ const MAX_EVENTS: usize = 2000;
 pub enum NetworkSource {
     Logcat,
     Sdk,
-    Mitm,
 }
 
 impl NetworkSource {
@@ -31,7 +30,6 @@ impl NetworkSource {
         match self {
             Self::Logcat => "logcat",
             Self::Sdk => "sdk",
-            Self::Mitm => "mitm",
         }
     }
 
@@ -41,7 +39,6 @@ impl NetworkSource {
         match self {
             Self::Logcat => "URL, method, status and duration from the app's own OkHttp log lines, plus the response body only when the app logs at BODY level. Never request headers, never the request body.",
             Self::Sdk => "URL, method, status, duration and byte sizes reported by the in-app Drengr SDK, captured inside the app above TLS. Headers and bodies are optional on this wire, so an entry carrying no headers and no bodies came from an SDK build that does not send them, not from a format that cannot.",
-            Self::Mitm => "Full request and response headers and bodies, decrypted by Drengr's proxy, subject to the capture size caps.",
         }
     }
 }
@@ -254,11 +251,7 @@ pub fn summarize(entries: &[SinkEntry]) -> Value {
 pub fn provenance(entries: &[SinkEntry]) -> (Value, Value) {
     let mut counts = serde_json::Map::new();
     let mut legend = serde_json::Map::new();
-    for source in [
-        NetworkSource::Logcat,
-        NetworkSource::Sdk,
-        NetworkSource::Mitm,
-    ] {
+    for source in [NetworkSource::Logcat, NetworkSource::Sdk] {
         let of_source: Vec<&SinkEntry> = entries.iter().filter(|e| e.source == source).collect();
         if of_source.is_empty() {
             continue;
@@ -385,11 +378,7 @@ mod tests {
         let sink = NetworkSink::new();
         sink.push(NetworkSource::Logcat, BodyTruncation::None, event("/a", 1));
         sink.push(NetworkSource::Sdk, BodyTruncation::None, event("/b", 2));
-        sink.push(
-            NetworkSource::Mitm,
-            BodyTruncation::Response,
-            event("/c", 3),
-        );
+        sink.push(NetworkSource::Sdk, BodyTruncation::Response, event("/c", 3));
 
         let snap = sink.snapshot();
         let sources: Vec<NetworkSource> = snap.iter().map(|e| e.source).collect();
@@ -398,7 +387,7 @@ mod tests {
             vec![
                 NetworkSource::Logcat,
                 NetworkSource::Sdk,
-                NetworkSource::Mitm
+                NetworkSource::Sdk
             ],
             "the sink must not flatten three fidelities into one"
         );
@@ -409,7 +398,7 @@ mod tests {
     fn summary_reports_source_and_truncation_per_call() {
         let sink = NetworkSink::new();
         sink.push(
-            NetworkSource::Mitm,
+            NetworkSource::Sdk,
             BodyTruncation::Both,
             event("https://api.example.com/x", 1),
         );
@@ -421,7 +410,7 @@ mod tests {
 
         let calls = summarize(&sink.snapshot());
         let arr = calls.as_array().unwrap();
-        assert_eq!(arr[0]["source"], "mitm");
+        assert_eq!(arr[0]["source"], "sdk");
         assert_eq!(arr[0]["truncated"], "both");
         assert_eq!(arr[0]["url"], "api.example.com/x");
         assert_eq!(arr[1]["source"], "logcat");
@@ -436,11 +425,11 @@ mod tests {
         let sink = NetworkSink::new();
         sink.push(NetworkSource::Logcat, BodyTruncation::None, event("/a", 1));
         sink.push(NetworkSource::Logcat, BodyTruncation::None, event("/b", 2));
-        sink.push(NetworkSource::Mitm, BodyTruncation::None, event("/c", 3));
 
+        // A source with no entries must be absent, not reported as zero: the
+        // legend states what the batch actually carries.
         let (counts, legend) = provenance(&sink.snapshot());
         assert_eq!(counts["logcat"], 2);
-        assert_eq!(counts["mitm"], 1);
         assert!(counts.get("sdk").is_none());
         assert!(legend["logcat"]
             .as_str()
@@ -457,11 +446,7 @@ mod tests {
             BodyTruncation::None,
             event("/old", 100),
         );
-        sink.push(
-            NetworkSource::Mitm,
-            BodyTruncation::None,
-            event("/new", 200),
-        );
+        sink.push(NetworkSource::Sdk, BodyTruncation::None, event("/new", 200));
 
         let window = sink.since(150);
         assert_eq!(window.len(), 1);
@@ -472,11 +457,11 @@ mod tests {
     fn drain_removes_one_source_and_keeps_the_others_in_order() {
         let sink = NetworkSink::new();
         sink.push(NetworkSource::Logcat, BodyTruncation::None, event("/l1", 1));
-        sink.push(NetworkSource::Mitm, BodyTruncation::None, event("/m1", 2));
+        sink.push(NetworkSource::Sdk, BodyTruncation::None, event("/m1", 2));
         sink.push(NetworkSource::Logcat, BodyTruncation::None, event("/l2", 3));
-        sink.push(NetworkSource::Mitm, BodyTruncation::None, event("/m2", 4));
+        sink.push(NetworkSource::Sdk, BodyTruncation::None, event("/m2", 4));
 
-        let drained = sink.drain(NetworkSource::Mitm);
+        let drained = sink.drain(NetworkSource::Sdk);
         assert_eq!(drained.len(), 2);
         assert_eq!(drained[0].event.url, "/m1");
 
@@ -492,7 +477,7 @@ mod tests {
         let sink = NetworkSink::new();
         for i in 0..(MAX_EVENTS + 50) {
             sink.push(
-                NetworkSource::Mitm,
+                NetworkSource::Sdk,
                 BodyTruncation::None,
                 event(&format!("/{i}"), i as u64),
             );
@@ -505,12 +490,12 @@ mod tests {
     #[test]
     fn entry_json_carries_source_beside_the_event_fields() {
         let entry = SinkEntry {
-            source: NetworkSource::Mitm,
+            source: NetworkSource::Sdk,
             truncated: BodyTruncation::Request,
             event: event("/api", 7),
         };
         let json = serde_json::to_value(&entry).unwrap();
-        assert_eq!(json["source"], "mitm");
+        assert_eq!(json["source"], "sdk");
         assert_eq!(json["truncated"], "request");
         assert_eq!(json["url"], "/api");
     }

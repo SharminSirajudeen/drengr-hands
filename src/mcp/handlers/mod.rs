@@ -45,7 +45,7 @@ pub struct McpHandlers {
     /// Active session for recording test steps + network calls.
     session: Arc<Mutex<Option<Session>>>,
 
-    /// The one network sink. Logcat polling, the in-app SDK and the MITM proxy
+    /// The one network sink. Logcat polling and the in-app SDK
     /// all push here, each event tagged with the source that produced it, and
     /// `drengr_query(network)` reads it. Before this was shared, the SDK's own
     /// store was orphaned and no SDK event could ever be read back.

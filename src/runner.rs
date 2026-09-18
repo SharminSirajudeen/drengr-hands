@@ -123,7 +123,6 @@ pub async fn run_suite(
             device_id: device_id.to_string(),
             force_vision: false,
             verify_completion: true,
-            cleanup_wda: false,
             // Tests declare their target app up front — cross-app navigation
             // in a test scenario is almost certainly prompt-injection.
             allowed_apps: Some(vec![suite.app.clone()]),

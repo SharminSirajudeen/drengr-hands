@@ -1225,13 +1225,13 @@ impl DeviceTransport for AdbTransport {
         }
         let _ = tokio::time::timeout(std::time::Duration::from_secs(10), child.wait()).await;
 
-        // Pull the recording from the device to the local path.
-        if let Err(e) = self.run(&["pull", &device_path, &local_path], 60).await {
-            tracing::warn!("{}", e);
-        }
-
-        // Clean up device-side file.
+        // A failed pull used to warn and still return the path, so the caller got
+        // a filename for a file that was never written — the trait promises the
+        // recording is ready for playback when this returns. Clean up the device
+        // side either way, then report the failure.
+        let pulled = self.run(&["pull", &device_path, &local_path], 60).await;
         let _ = self.run(&["shell", "rm", "-f", &device_path], 10).await;
+        pulled.context("pull recording off the device")?;
 
         tracing::info!("stopped Android screen recording → {}", local_path);
         Ok(local_path)

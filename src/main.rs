@@ -1,32 +1,5 @@
 use clap::{Parser, Subcommand};
 
-/// Speed-bump for casual debugger attachment in release builds.
-/// NOT a security boundary: bypassable by frida, dtrace, kernel debuggers,
-/// or a patched syscall. Treated as deterrent only.
-#[cfg(not(debug_assertions))]
-fn anti_debug() {
-    #[cfg(target_os = "macos")]
-    unsafe {
-        // PT_DENY_ATTACH (31) — refuses subsequent `lldb -p <pid>` attaches.
-        libc::ptrace(31, 0, std::ptr::null_mut::<libc::c_char>(), 0);
-    }
-    #[cfg(target_os = "linux")]
-    unsafe {
-        // PR_SET_DUMPABLE(0) is Linux's PT_DENY_ATTACH: it denies a same-user
-        // ptrace attach and suppresses core dumps. execve resets it, so adb and
-        // the other children we spawn are unaffected.
-        //
-        // PTRACE_TRACEME must never be used for this. It does not detect a
-        // debugger, it installs our own parent as our tracer, and a parent that
-        // never calls waitpid leaves us in ptrace_stop at the first signal we
-        // receive — which is the SIGCHLD from the first child we spawn.
-        libc::prctl(libc::PR_SET_DUMPABLE, 0);
-    }
-}
-
-#[cfg(debug_assertions)]
-fn anti_debug() {} // no-op in debug builds
-
 #[derive(Parser)]
 #[command(
     name = "drengr",
@@ -624,7 +597,6 @@ async fn do_update() -> anyhow::Result<()> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    anti_debug();
     check_arch_or_die();
     drengr_hands::credentials::migration::migrate_to_keychain_if_needed();
     let cli = Cli::parse();
@@ -961,7 +933,6 @@ async fn main() -> anyhow::Result<()> {
                 device_id: cloud.as_deref().unwrap_or("local").to_string(),
                 force_vision,
                 verify_completion: !no_verify_completion,
-                cleanup_wda,
                 // CLI: unrestricted — the user authored --app and --task.
                 allowed_apps: None,
             };
@@ -1742,7 +1713,6 @@ async fn cmd_demo(app: Option<String>, task: Option<String>) -> anyhow::Result<(
         device_id: "local".to_string(),
         force_vision: false,
         verify_completion: true,
-        cleanup_wda: false,
         allowed_apps: None,
     };
 

@@ -43,9 +43,6 @@ pub struct OodaConfig {
     pub force_vision: bool,
     /// Run a post-action binary goal-completion query ("LLM as judge").
     pub verify_completion: bool,
-    /// After the run finishes (success or failure), uninstall the WDA runner
-    /// so the next run starts from a clean slate. iOS-only; no-op on Android.
-    pub cleanup_wda: bool,
     /// When `Some`, `open_app` may only target packages in this list;
     /// anything else is refused. `None` is unrestricted (CLI default).
     pub allowed_apps: Option<Vec<String>>,
@@ -1065,29 +1062,10 @@ mod tests {
             device_id: "emulator-5554".to_string(),
             force_vision: false,
             verify_completion: true,
-            cleanup_wda: false,
             allowed_apps: None,
         };
         assert_eq!(config.max_steps, 30);
         assert!(config.verify_completion);
-    }
-
-    #[test]
-    fn cleanup_wda_field_defaults_false() {
-        // The `drengr run` CLI default is opt-in; the runner.rs path sets it
-        // to false explicitly. Codify both here so a future regression trips
-        // a unit test, not a surprise reinstall loop.
-        let config = OodaConfig {
-            task: "x".into(),
-            app_package: "com.app".into(),
-            max_steps: 1,
-            device_id: "d".into(),
-            force_vision: false,
-            verify_completion: false,
-            cleanup_wda: false,
-            allowed_apps: None,
-        };
-        assert!(!config.cleanup_wda);
     }
 
     #[tokio::test]

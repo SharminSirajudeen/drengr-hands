@@ -403,7 +403,6 @@ async fn run_demo(dev: &transport::DetectedDevice, llm: &LlmClient) {
         device_id: "local".to_string(),
         force_vision: false,
         verify_completion: true,
-        cleanup_wda: false,
         allowed_apps: None,
     };
     match crate::ooda::run_ooda(transport.as_ref(), llm, &config).await {

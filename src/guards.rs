@@ -273,4 +273,29 @@ mod tests {
             "a repeated rejection does not end the run, so it burns the step budget:\n{arm}"
         );
     }
+
+    /// A transport method that cannot do its job must say so. Three of them
+    /// returned Ok while doing nothing — iOS keyboard dismissal, the iOS
+    /// pasteboard write, and the Android recording pull — so callers proceeded
+    /// as though a keyboard were gone, a clipboard were set, or a file existed.
+    #[test]
+    fn no_transport_method_reports_success_for_work_it_did_not_do() {
+        let cases = [
+            ("transport/simctl.rs", "dismiss_keyboard"),
+            ("transport/simctl.rs", "pasteboard_set"),
+            ("transport/adb.rs", "stop_recording"),
+        ];
+        for (file, method) in cases {
+            let src = std::fs::read_to_string(src_root().join(file)).expect(file);
+            let body = src
+                .split(&format!("fn {method}"))
+                .nth(1)
+                .unwrap_or_else(|| panic!("{file} still defines {method}"));
+            let body: String = body.chars().take(1200).collect();
+            assert!(
+                body.contains("bail!") || body.contains("?;"),
+                "{file}::{method} has no failure path; it can only report success:\n{body}"
+            );
+        }
+    }
 }
