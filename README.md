@@ -55,6 +55,19 @@ at all, so a lot of a run costs nothing.
 
 It is your key and your bill, always. Nothing is proxied through us.
 
+## Or a device you don't own
+
+```bash
+drengr run --cloud browserstack --device "Pixel 8" --os-version 14 \
+  --app com.example.app --task "log in"
+```
+
+`--cloud` takes `browserstack`, `saucelabs`, `aws`, `lambdatest`, `perfecto`,
+`kobiton`, or **any Appium hub URL** — a self-hosted grid, a vendor not on that
+list, or `http://localhost:4723`. The named ones only exist so their hub URL and
+credential env vars are filled in for you; underneath they are all the same
+WebDriver path, so a provider we have never heard of works the same way.
+
 ## Tests in CI
 
 ```yaml

@@ -43,7 +43,8 @@ enum Commands {
         #[arg(long)]
         adb_path: Option<String>,
 
-        /// Cloud provider for remote devices (browserstack, saucelabs).
+        /// Cloud provider, or any Appium hub URL: browserstack | saucelabs |
+        /// aws | lambdatest | perfecto | kobiton | custom | http://your-grid:4723
         #[arg(long)]
         cloud: Option<String>,
 
@@ -105,7 +106,8 @@ enum Commands {
         #[arg(long)]
         output: Option<String>,
 
-        /// Cloud provider (browserstack, saucelabs)
+        /// Cloud provider, or any Appium hub URL: browserstack | saucelabs |
+        /// aws | lambdatest | perfecto | kobiton | custom | http://your-grid:4723
         #[arg(long)]
         cloud: Option<String>,
 
