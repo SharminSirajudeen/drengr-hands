@@ -1,0 +1,77 @@
+{
+  "manifest_version": "0.3",
+  "name": "drengr",
+  "display_name": "Drengr",
+  "version": "0.10.13",
+  "description": "Eyes and hands for AI agents on Android and iOS devices.",
+  "long_description": "Drengr gives AI agents the ability to see, understand, and interact with Android and iOS devices. Three MCP tools: drengr_look (observe screen with annotated screenshots), drengr_do (tap, type, swipe, navigate), and drengr_query (check devices, crashes, find elements). Single Rust binary, zero runtime dependencies.",
+  "author": {
+    "name": "Drengr",
+    "email": "hey@drengr.dev",
+    "url": "https://drengr.dev"
+  },
+  "homepage": "https://drengr.dev",
+  "repository": "https://github.com/SharminSirajudeen/drengr-hands",
+  "documentation": "https://drengr.dev/getting-started",
+  "support": "https://github.com/SharminSirajudeen/drengr-hands/discussions",
+  "license": "LicenseRef-Proprietary",
+  "keywords": [
+    "mobile",
+    "android",
+    "ios",
+    "testing",
+    "automation",
+    "device-control"
+  ],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/drengr",
+    "mcp_config": {
+      "command": "server/drengr",
+      "args": [
+        "mcp"
+      ],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "drengr_look",
+      "description": "Observe the current screen. Returns an annotated screenshot with numbered interactive elements.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "drengr_do",
+      "description": "Execute an action on the device (tap, type, swipe, navigate) and get a situation report.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      }
+    },
+    {
+      "name": "drengr_query",
+      "description": "Quick read-only queries: check devices, current activity, crash status, find elements.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      }
+    }
+  ],
+  "compatibility": {
+    "platforms": [
+      "darwin"
+    ]
+  },
+  "privacy_policies": [
+    "https://drengr.dev/privacy"
+  ]
+}

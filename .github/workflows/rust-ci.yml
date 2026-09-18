@@ -1,0 +1,69 @@
+name: Rust
+
+# Nothing built or tested this crate on any automatic trigger. The first thing
+# that compiled a change was release.yml, on a tag push, by which point the
+# regression was already being packaged for users.
+#
+# Path-gated and concurrency-cancelled: pushes that touch only docs, the landing
+# site, the SDKs or the edge functions cost nothing, and a rapid series of
+# commits bills for the last one rather than for each.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/rust-ci.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/rust-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # A runner has no device. The Android end-to-end suite stays behind its
+      # `android-e2e` feature and the iOS and MITM tests keep their `#[ignore]`,
+      # so default features are the whole of what can run here.
+      - name: Build
+        run: cargo build --all-targets --locked
+
+      - name: Test
+        run: cargo test --locked
+
+      # Reports, does not gate. src/ carries a clippy backlog that predates this
+      # workflow, so `-D warnings` would paint every run red on arrival and teach
+      # everyone to ignore it. Clear the backlog in src/ (`cargo clippy --fix
+      # --all-targets --allow-dirty`, then the handful that need a human), delete
+      # this one line, and clippy becomes a real gate.
+      - name: Clippy
+        continue-on-error: true
+        run: cargo clippy --all-targets --locked -- -D warnings

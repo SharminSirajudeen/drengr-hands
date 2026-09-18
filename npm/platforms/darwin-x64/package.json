@@ -1,0 +1,20 @@
+{
+  "name": "drengr-darwin-x64",
+  "version": "0.10.13",
+  "description": "Drengr binary for darwin x64. Installed automatically as an optional dependency of drengr.",
+  "license": "LicenseRef-Proprietary",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "drengr",
+    "drengr-ios-helper"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SharminSirajudeen/drengr-hands.git"
+  }
+}

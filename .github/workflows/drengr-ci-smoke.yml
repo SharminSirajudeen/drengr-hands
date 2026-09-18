@@ -1,0 +1,147 @@
+name: drengr-ci smoke test
+
+# First live proof of the published SharminSirajudeen/drengr-ci@v1 action.
+# MANUAL ONLY — cost discipline (see android-e2e.yml). Two jobs:
+#   1. action-smoke  — no device, proves the published action itself resolves
+#      and runs its full step sequence on a real GitHub runner (~seconds).
+#   2. android-live  — boots a real emulator and runs the actual drengr npm
+#      package against it (the action's own README shows this pattern inline,
+#      since android-emulator-runner tears the device down after its script).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  action-smoke:
+    name: Composite action resolves + runs (no device)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: SharminSirajudeen/drengr-ci@v1
+        continue-on-error: true
+        id: drengr
+        with:
+          format: json
+
+      - name: Report
+        run: |
+          echo "passed=${{ steps.drengr.outputs.passed }} failed=${{ steps.drengr.outputs.failed }} total=${{ steps.drengr.outputs.total }}"
+          echo "Expected: no device on this runner, so the run should exit 2 (preflight failure) — this job proves the action itself installs and executes, not that a task passed."
+
+  android-live:
+    name: Real device run (Android emulator, Groq)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Enable KVM nested virtualization
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Write smoke suite
+        run: |
+          cat > drengr-tests.yml <<'EOF'
+          app: com.android.settings
+          tasks:
+            - name: Settings app is open
+              task: Confirm the screen shows the Settings app (its main menu or any settings screen). Do not navigate anywhere — just observe and report done.
+              timeout: 45s
+          EOF
+
+      - name: Cache AVD
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-34-google_apis-x86_64-v1
+
+      - name: Create AVD + warm cache (first run only)
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save
+          disable-animations: true
+          script: echo "AVD warmed"
+
+      - name: Run drengr-ci against the live emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot-save
+          disable-animations: true
+          script: |
+            # The action already waits for sys.boot_completed, so waiting on it
+            # again buys nothing. boot_completed is true well before the launcher
+            # and Settings are drawable: the run that failed started drengr 14s
+            # after boot and saw elements=0, while the run that passed started 49s
+            # after boot and saw elements=17. Gate on the two things that actually
+            # mean the UI is up, not on the one that fires first.
+            adb wait-for-device
+            timeout 180 adb shell 'while [ "$(getprop init.svc.bootanim)" != "stopped" ]; do sleep 2; done'
+            adb shell input keyevent 82
+            # A dump that returns nothing means no accessibility tree yet, which is
+            # exactly the elements=0 the failing run observed.
+            for i in $(seq 1 30); do
+              if adb shell uiautomator dump /dev/tty 2>/dev/null | grep -q "<node"; then
+                echo "UI tree is up after ${i} attempt(s)"; break
+              fi
+              [ "$i" = 30 ] && { echo "::error::no UI tree after 60s"; exit 1; }
+              sleep 2
+            done
+            npm install -g drengr@latest
+            drengr --version
+            drengr doctor | grep -A2 "Vision API key" || true
+            drengr test --format json --output drengr-results.json
+        env:
+          DRENGR_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          DRENGR_VISION_PROVIDER: groq
+
+      - name: Show results
+        if: always()
+        run: cat drengr-results.json 2>/dev/null || echo "no results file"
+
+      # android-emulator-runner swallows its script's exit code: `drengr test`
+      # exited 1 on a failed suite and the step still reported success, so a
+      # green run here never meant the device run passed. The assertion has to
+      # live outside that action, where a failure can actually fail the job.
+      - name: The suite must actually have passed
+        run: |
+          python3 - <<'EOF'
+          import json, sys
+          try:
+              d = json.load(open('drengr-results.json'))
+          except Exception as e:
+              sys.exit(f"no readable results file: {e}")
+          print(json.dumps(d, indent=2))
+          if d.get('total', 0) == 0:
+              sys.exit("the suite ran no tasks")
+          if d.get('failed', 1) != 0 or d.get('passed', 0) == 0:
+              for r in d.get('results', []):
+                  if not r.get('passed'):
+                      print(f"::error title=drengr task failed::{r.get('name')}: {r.get('reasoning')}")
+              sys.exit(f"{d.get('failed')} of {d.get('total')} tasks failed")
+          print(f"{d['passed']}/{d['total']} passed on a real emulator")
+          EOF
+
+      # Never let an artifact-store problem mark a genuinely passing device run as
+      # failed — the results are already echoed above.
+      - name: Upload results
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: drengr-ci-smoke-results
+          path: drengr-results.json
+          if-no-files-found: warn
+          retention-days: 1
