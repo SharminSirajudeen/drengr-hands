@@ -6,6 +6,13 @@ authors = ["Drengr"]
 license = "MIT"
 description = "Eyes and hands for AI agents on mobile devices"
 repository = "https://github.com/SharminSirajudeen/drengr-hands"
+homepage = "https://drengr.dev"
+documentation = "https://docs.rs/drengr-hands"
+readme = "README.md"
+keywords = ["mcp", "android", "ios", "automation", "agent"]
+categories = ["command-line-utilities", "development-tools::testing", "api-bindings"]
+rust-version = "1.87"
+exclude = ["npm/", "mcpb/", "runbooks/", "scripts/", "assets/*.png", ".github/"]
 
 [[bin]]
 name = "drengr"

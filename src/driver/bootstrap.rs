@@ -133,8 +133,6 @@ async fn launch_pipeline_with_progress(
     // re-launches the runner right after we terminate it.
     reap_orphaned_runner_builds(udid).await;
     terminate_runner(udid).await;
-    // Sweep the legacy Facebook WDA runner left by pre-v0.6.0 Drengr.
-    uninstall_legacy_wda(udid).await;
 
     // Inject the allocated port so this runner listens on it instead of the
     // 8200 default — lets multiple live Drengr instances co-drive different sims.
@@ -270,23 +268,6 @@ async fn reap_process(pid: u32) {
 async fn terminate_runner(udid: &str) {
     let _ = TokioCommand::new("xcrun")
         .args(["simctl", "terminate", udid, super::RUNNER_BUNDLE_ID])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .await;
-}
-
-/// Pre-v0.6.0 used a Facebook WebDriverAgent xctrunner. Sims that ran an old
-/// Drengr still have it installed ("Drengr Driver Agent"). Best-effort remove
-/// it on provision so only `dev.drengr.runner` remains.
-async fn uninstall_legacy_wda(udid: &str) {
-    let _ = TokioCommand::new("xcrun")
-        .args([
-            "simctl",
-            "uninstall",
-            udid,
-            "com.facebook.WebDriverAgentRunner.xctrunner",
-        ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
