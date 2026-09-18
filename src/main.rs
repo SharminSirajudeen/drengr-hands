@@ -1962,7 +1962,12 @@ async fn cmd_setup(client: String, write: bool, port: u16) -> anyhow::Result<()>
         ),
         // "raw" / unknown → a generic stdio snippet, print-only.
         None => {
-            let generic = catalog.iter().find(|c| c.key == "claude-desktop").unwrap();
+            // The only unwrap here that rested on data rather than a checked
+            // invariant: removing this key from the catalog would panic `setup`.
+            let Some(generic) = catalog.iter().find(|c| c.key == "claude-desktop") else {
+                eprintln!("  No client catalog entry to base a generic snippet on.");
+                return Ok(());
+            };
             (
                 if resolved_client == "raw" {
                     "MCP".to_string()
