@@ -21,6 +21,7 @@
 pub mod credentials;
 pub mod diag;
 pub mod driver;
+pub mod evidence;
 pub mod expect_network;
 pub mod explore;
 mod guards;

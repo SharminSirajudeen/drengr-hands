@@ -95,11 +95,27 @@ app: com.example.app
 tasks:
   - name: checkout
     task: add an item to the cart and reach the payment screen
+    expect_network:
+      - url: "*/api/orders"
+        method: POST
+        status: 201
 ```
 
 ```bash
-drengr test drengr-tests.yml --format json
+drengr test drengr-tests.yml --format json --output results.json --evidence-dir drengr-evidence
 ```
+
+Every task leaves evidence under `--evidence-dir` (default `~/.drengr/evidence/<run>`): a
+PNG per executed step, `steps.json` with what each action changed, `network.json` with
+the calls it made (URL, method, status, duration; never headers, never bodies), and on
+failure `logs.txt` (OkHttp lines dropped whole, credentials and PII redacted) and
+`death.txt`, the process verdict. The JSON result names each task's folder, how the loop
+stopped (`crash`, `step_cap`, `timeout`, `error`, …) and the error when there was one, so
+a wrapper can say what a failure means without re-running anything. `--only a,b` runs the
+named tasks, and `drengr suite` prints the suite as JSON with every key.
+
+`drengr-qa` is that wrapper: it picks the tasks a pull request touched, classifies each
+failure from this evidence, and posts the page on the PR.
 
 ## How it works
 

@@ -303,6 +303,24 @@ enum Commands {
         /// Write results to this file instead of stdout
         #[arg(long)]
         output: Option<String>,
+
+        /// Folder that receives each task's screenshots, step trail, network
+        /// calls and, on failure, device log and process verdict.
+        /// Default: ~/.drengr/evidence/<unix-seconds>-<pid>.
+        #[arg(long, value_name = "DIR")]
+        evidence_dir: Option<String>,
+
+        /// Run only these tasks, by name, comma-separated, in suite order.
+        /// A name the suite does not have is an error, not an empty run.
+        #[arg(long, value_name = "NAMES", value_delimiter = ',')]
+        only: Option<Vec<String>>,
+    },
+
+    /// Print the suite as JSON, every key included: what a wrapper reads to
+    /// see the keys it adds to a task (such as `paths:`) without parsing YAML.
+    Suite {
+        /// Path to drengr-tests.yml (auto-detected from CWD if omitted)
+        file: Option<String>,
     },
 
     /// Explore app screens (familiarization run)
@@ -928,6 +946,7 @@ async fn main() -> anyhow::Result<()> {
                 verify_completion: !no_verify_completion,
                 // CLI: unrestricted — the user authored --app and --task.
                 allowed_apps: None,
+                trail_dir: None,
             };
 
             let run_outcome = drengr_hands::ooda::run_ooda(transport.as_ref(), &llm, &config).await;
@@ -960,6 +979,13 @@ async fn main() -> anyhow::Result<()> {
                     // Reuse the canonical emitter so `run` and `test` emit identical JUnit.
                     let suite = drengr_hands::runner::SuiteResult {
                         app: app.to_string(),
+                        device: config.device_id.clone(),
+                        model: llm
+                            .describe()
+                            .lines()
+                            .next()
+                            .unwrap_or_default()
+                            .to_string(),
                         total: 1,
                         passed: if result.success { 1 } else { 0 },
                         failed: if result.success { 0 } else { 1 },
@@ -971,6 +997,9 @@ async fn main() -> anyhow::Result<()> {
                             steps: result.steps,
                             reasoning: result.final_reasoning.to_string(),
                             duration_ms: 0,
+                            outcome: result.outcome.as_str().to_string(),
+                            error: None,
+                            evidence: String::new(),
                             network_expectations: Vec::new(),
                         }],
                     };
@@ -1007,7 +1036,11 @@ async fn main() -> anyhow::Result<()> {
             app_file,
             format: fmt,
             output,
-        } => cmd_test(file, app_file, fmt, output).await,
+            evidence_dir,
+            only,
+        } => cmd_test(file, app_file, fmt, output, evidence_dir, only).await,
+
+        Commands::Suite { file } => cmd_suite(file),
 
         Commands::Explore { app, max_screens } => {
             init_logging();

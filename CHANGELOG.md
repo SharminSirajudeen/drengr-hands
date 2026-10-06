@@ -5,6 +5,27 @@ hands on mobile devices (Android + iOS).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Added
+- **`drengr test` leaves evidence.** Each task gets a folder under `--evidence-dir`
+  (default `~/.drengr/evidence/<unix-seconds>`): a PNG per executed step, `steps.json`
+  with what each action changed, `network.json` with the calls it made (URL without its
+  query string, method, status, duration; never headers or bodies), and on failure
+  `logs.txt` (OkHttp lines dropped whole, credentials and PII redacted) and `death.txt`,
+  the process verdict. The device log is cleared and the folder emptied before every
+  task, so nothing from an earlier task is charged to this one.
+- **The JSON result says how each task ended**: `outcome` (`judge_pass`, `self_reported`,
+  `crash`, `step_cap`, `progress_stuck`, `duplicate_screen`, `timeout`, `error`), `error`
+  when there was one, and `evidence`, the task's folder. JUnit carries the outcome as the
+  failure `type`. A task that timed out reports the steps its trail recorded.
+- **`drengr test --only a,b`** runs the named tasks in suite order; an unknown name is
+  refused before any device is touched. Keys this runner does not read, such as a
+  wrapper's `paths:`, ride along in the suite file.
+- **`drengr suite [FILE]`** prints the suite as JSON with every key, so a wrapper reads
+  what it adds to a task without parsing YAML itself.
+- `OodaResult` carries `outcome`, how the loop stopped, beside `success`.
+
 ## 0.11.0 — 2026-09-19
 
 First release from the open-source repo. Drengr's actuator now lives at
