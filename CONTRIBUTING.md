@@ -1,6 +1,8 @@
 # Contributing
 
-`cargo test` must pass and `cargo clippy --all-targets` must not add warnings.
+`scripts/gate.sh` must be green before a push: build, `cargo test`, `cargo clippy --all-targets -D warnings`,
+`cargo fmt --check`, `cargo deny check licenses`, and the named mutants in `scripts/mutants.list`. A new check ships
+with its mutant on the same line of that list, in the same change; `scripts/mutants.sh <substring>` runs a subset.
 
 The device layer is the part worth extending: `src/transport/` holds the
 `DeviceTransport` trait and its Android, iOS and Appium implementations. A new

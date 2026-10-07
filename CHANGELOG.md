@@ -5,6 +5,33 @@ hands on mobile devices (Android + iOS).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Added
+- **`drengr test` leaves evidence.** Each task gets a folder under `--evidence-dir`
+  (default `~/.drengr/evidence/<unix-seconds>-<pid>`): a PNG per executed step and the
+  frame it was decided on, `steps.json` with what each action changed, `network.json`
+  with the calls it made (URL without its query string, method, status, duration; never
+  headers or bodies), and on failure `logs.txt` (OkHttp lines dropped whole, header and
+  quoted-key secrets redacted, cut to 200 lines after scrubbing) and `death.txt`, the
+  process verdict. A passing task loses its frames. The device log is cleared and the
+  folder emptied before every task, so nothing from an earlier task is charged to this one.
+- **The JSON result says how each task ended**: `outcome` (`judge_pass`, `self_reported`,
+  `crash`, `step_cap`, `progress_stuck`, `duplicate_screen`, `timeout`, `error`), `error`
+  when there was one, `evidence`, the task's folder, and the `device` and `model` the
+  suite ran on. JUnit carries the outcome as the failure `type`. A task that timed out
+  reports the steps its trail recorded; a completion claim the judge refused is a
+  recorded step.
+- **`scripts/gate.sh`**: build, tests, clippy, fmt, licences and the named mutants in
+  `scripts/mutants.list`, each breaking one protected line and naming the test that goes
+  red. A check without its mutant on that list is not done.
+- **`drengr test --only a,b`** runs the named tasks in suite order; an unknown name is
+  refused before any device is touched. Keys this runner does not read, such as a
+  wrapper's `paths:`, ride along in the suite file.
+- **`drengr suite [FILE]`** prints the suite as JSON with every key, so a wrapper reads
+  what it adds to a task without parsing YAML itself.
+- `OodaResult` carries `outcome`, how the loop stopped, beside `success`.
+
 ## 0.11.0 — 2026-09-19
 
 First release from the open-source repo. Drengr's actuator now lives at

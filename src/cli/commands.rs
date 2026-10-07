@@ -104,6 +104,7 @@ pub(crate) async fn cmd_demo(app: Option<String>, task: Option<String>) -> anyho
         force_vision: false,
         verify_completion: true,
         allowed_apps: None,
+        trail_dir: None,
     };
 
     let outcome = drengr_hands::ooda::run_ooda(transport.as_ref(), &llm, &config).await;
@@ -148,6 +149,8 @@ pub(crate) async fn cmd_test(
     app_file: Option<String>,
     fmt: String,
     output: Option<String>,
+    evidence_dir: Option<String>,
+    only: Option<Vec<String>>,
 ) -> anyhow::Result<()> {
     init_logging();
 
@@ -161,6 +164,14 @@ pub(crate) async fn cmd_test(
     });
 
     let suite = drengr_hands::runner::load_suite(&path)
+        .map_err(|e| {
+            eprintln!("Error: {:#}", e);
+            std::process::exit(2);
+        })
+        .unwrap();
+
+    // A wrong name is caught before any device or model is touched.
+    let tasks = drengr_hands::runner::select_only(&suite, only.as_deref())
         .map_err(|e| {
             eprintln!("Error: {:#}", e);
             std::process::exit(2);
@@ -190,9 +201,13 @@ pub(crate) async fn cmd_test(
         }
     }
 
+    let evidence_dir = evidence_dir
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(default_evidence_dir);
+
     let in_actions = std::env::var_os("GITHUB_ACTIONS").is_some();
     if in_actions {
-        let n = suite.tasks.len();
+        let n = tasks.len();
         println!(
             "::group::Drengr — {} ({} task{} on {})",
             gha_data(&suite.app),
@@ -203,9 +218,18 @@ pub(crate) async fn cmd_test(
     }
 
     let network = drengr_hands::network::sink::NetworkSink::new();
-    let result =
-        drengr_hands::runner::run_suite(&suite, transport.as_ref(), &llm, &detected.id, &network)
-            .await;
+    let result = drengr_hands::runner::run_suite(
+        &suite,
+        transport.as_ref(),
+        &llm,
+        &detected.id,
+        &network,
+        drengr_hands::runner::RunOptions {
+            evidence_dir: &evidence_dir,
+            tasks: &tasks,
+        },
+    )
+    .await;
 
     let formatted = match fmt.as_str() {
         "junit" => drengr_hands::runner::format_junit(&result),
@@ -218,6 +242,9 @@ pub(crate) async fn cmd_test(
         eprintln!("Results written to {}", path);
     } else {
         print!("{}", formatted);
+    }
+    if result.failed > 0 {
+        eprintln!("Evidence: {}", evidence_dir.display());
     }
 
     if in_actions {
@@ -234,6 +261,39 @@ pub(crate) async fn cmd_test(
     }
 
     std::process::exit(result.exit_code());
+}
+
+pub(crate) fn cmd_suite(file: Option<String>) -> anyhow::Result<()> {
+    let path = file.map(std::path::PathBuf::from).unwrap_or_else(|| {
+        find_suite_file().unwrap_or_else(|| {
+            eprintln!(
+                "No test file found. Create drengr-tests.yml, or pass a path: drengr suite <file>"
+            );
+            std::process::exit(2);
+        })
+    });
+    match drengr_hands::runner::suite_json(&path) {
+        Ok(json) => {
+            println!("{json}");
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Error: {:#}", e);
+            std::process::exit(2);
+        }
+    }
+}
+
+fn default_evidence_dir() -> std::path::PathBuf {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Seconds plus the process id: two runs started in the same second must
+    // not share a folder, or the second's reset wipes the first's task.
+    drengr_hands::paths::drengr_dir_or(".")
+        .join("evidence")
+        .join(format!("{secs}-{}", std::process::id()))
 }
 
 pub(crate) async fn cmd_setup(client: String, write: bool, port: u16) -> anyhow::Result<()> {
