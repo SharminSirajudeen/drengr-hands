@@ -1,0 +1,17 @@
+# One named mutant per line, tab-separated: label, file, test that must go red, perl -0 substitution.
+# scripts/mutants.sh applies each in turn and fails if a mutant does not apply, runs no test, or survives.
+# A new check ships with its line here, in the same change.
+runner: log not cleared before a task	src/runner/mod.rs	every_task_starts_from_a_cleared_log	s/\n\s*let _ = ctx\.transport\.clear_http_logs\(\)\.await;//
+runner: evidence folder not reset	src/runner/mod.rs	every_task_starts_from_a_cleared_log	s/\n\s*let _ = std::fs::remove_dir_all\(&dir\);//
+runner: expectations evaluated after a timeout	src/runner/mod.rs	expectations_are_skipped_exactly	s/RunOutcomeKind::Error \| RunOutcomeKind::Timeout => Vec::new\(\),/RunOutcomeKind::Error => Vec::new(),/
+runner: folder numbered by selection	src/runner/mod.rs	a_task_is_numbered_by_its_place	s/\.position\(\|t\| std::ptr::eq\(t, task\)\)\n?\s*\.unwrap_or\(0\)/.position(|t| std::ptr::eq(t, task)).map(|_| 0).unwrap_or(0)/s
+runner: suite validation removed	src/runner/mod.rs	suite_json_keeps	s/    let _: TestSuite = serde_yaml::from_value\(value\.clone\(\)\)\n\s*\.with_context\(\|\| format!\("Failed to parse test file: \{\}", path\.display\(\)\)\)\?;\n//
+evidence: trail not persisted per step	src/evidence/mod.rs	trail_persists_after_every_step	s/self\.steps\.push\(entry\);\n(\s+)self\.persist\(\);/self.steps.push(entry);/
+evidence: empty trail not written on creation	src/evidence/mod.rs	a_new_trail_writes_an_empty_file	s/        trail\.persist\(\);\n        trail\n    \}/        trail\n    }/
+evidence: OkHttp lines kept	src/evidence/mod.rs	the_log_tail_drops_okhttp	s/if e\.tag\.to_ascii_lowercase\(\)\.contains\("okhttp"\) \{/if false {/
+evidence: header values not redacted	src/evidence/mod.rs	the_log_tail_drops_okhttp	s/let line = header_pattern\(\)\.replace_all\(&line, "\$\{1\}: <redacted>"\);/let line = std::borrow::Cow::Borrowed(line.as_str());/
+evidence: quoted key values not redacted	src/evidence/mod.rs	the_log_tail_drops_okhttp	s/let line = value_pattern\(\)\.replace_all\(&line, "\$\{1\}: <redacted>"\);/let line = std::borrow::Cow::Borrowed(&*line);/
+evidence: tail not cut after scrubbing	src/evidence/mod.rs	the_tail_is_cut_after_scrubbing	s/let start = kept\.len\(\)\.saturating_sub\(LOG_TAIL_LINES\);\n\s*kept\[start\.\.\]\.to_vec\(\)/kept/s
+evidence: dropped frames still named	src/evidence/mod.rs	a_passing_task_loses_its_frames	s/    let trail = forget_frames\(trail\);\n//
+loop: executed step not recorded	src/ooda/mod.rs	the_loop_records_every_executed_step	s/\n\s*trail\.acted\(\s*step,\s*&action_desc,\s*&post_activity,\s*Some\(&report\),\s*before,\s*after_frame,?\s*\);//s
+appium: wire count ignores the route	src/transport/appium/tests.rs	open_url_rejects_a_scheme_we_will_not_send	s/\.filter\(\|r\| r\.url\.path\(\) == want\)\n\s*\.count\(\)/.filter(|r| r.url.path() == want).count() * 0/
