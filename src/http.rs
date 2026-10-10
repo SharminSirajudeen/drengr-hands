@@ -26,6 +26,58 @@ pub fn client() -> &'static reqwest::Client {
     })
 }
 
+/// The npm version newer than this binary, if there is one.
+///
+/// "Newer", not "different": while npm still serves an older build, a `!=`
+/// check told every user of a newer one to `drengr update` back down to it.
+pub async fn newer_npm_version() -> Result<Option<String>, String> {
+    let resp = client()
+        .get("https://registry.npmjs.org/drengr/latest")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    let latest = json
+        .get("version")
+        .and_then(|v| v.as_str())
+        .ok_or("registry returned no version")?;
+    Ok(is_newer(latest, env!("CARGO_PKG_VERSION")).then(|| latest.to_string()))
+}
+
+/// `major.minor.patch` comparison. A version that does not parse is never newer,
+/// so a malformed registry answer cannot start a nag.
+fn is_newer(latest: &str, current: &str) -> bool {
+    fn parse(v: &str) -> Option<(u64, u64, u64)> {
+        let mut it = v.split('-').next()?.split('.').map(|n| n.parse().ok());
+        Some((it.next()??, it.next()??, it.next()??))
+    }
+    matches!((parse(latest), parse(current)), (Some(l), Some(c)) if l > c)
+}
+
+#[cfg(test)]
+mod version_order {
+    use super::is_newer;
+
+    #[test]
+    fn an_older_registry_version_is_not_an_update() {
+        assert!(!is_newer("0.10.13", "0.11.0"));
+    }
+
+    #[test]
+    fn a_newer_registry_version_is_an_update() {
+        assert!(is_newer("0.11.1", "0.11.0"));
+        assert!(is_newer("0.12.0", "0.11.9"));
+        assert!(is_newer("1.0.0", "0.99.99"));
+    }
+
+    #[test]
+    fn same_or_unparseable_is_not_an_update() {
+        assert!(!is_newer("0.11.0", "0.11.0"));
+        assert!(!is_newer("garbage", "0.11.0"));
+        assert!(!is_newer("0.12", "0.11.0"));
+    }
+}
+
 /// The guard.
 ///
 /// `reqwest::Client::new()` has no timeout of any kind. When every call site

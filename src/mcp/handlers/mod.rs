@@ -323,19 +323,8 @@ impl McpHandlers {
         {
             let notice = self.update_notice.clone();
             tokio::spawn(async move {
-                let current = env!("CARGO_PKG_VERSION");
-                let latest = async {
-                    let resp = crate::http::client()
-                        .get("https://registry.npmjs.org/drengr/latest")
-                        .send()
-                        .await
-                        .ok()?;
-                    let json: serde_json::Value = resp.json().await.ok()?;
-                    json.get("version")?.as_str().map(|s| s.to_string())
-                }
-                .await;
-                if let Some(ver) = latest {
-                    if ver != current && !update_notice_already_shown(&ver) {
+                if let Ok(Some(ver)) = crate::http::newer_npm_version().await {
+                    if !update_notice_already_shown(&ver) {
                         // Hold the version, not the sentence. The marker must be
                         // written where the notice is actually appended, not
                         // here: a CLI run renders its response before this task
