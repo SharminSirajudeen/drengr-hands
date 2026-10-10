@@ -69,6 +69,8 @@ if command -v jq >/dev/null; then
   VNUM="${VERSION#v}"
   for chk in \
     "npm/package.json:$(jq -r '.version' "$REPO_ROOT/npm/package.json")" \
+    "npm/optionalDependencies:$(jq -r '[.optionalDependencies[]] | unique | join(",")' "$REPO_ROOT/npm/package.json")" \
+    "npm/platforms:$(jq -rs 'map(.version) | unique | join(",")' "$REPO_ROOT"/npm/platforms/*/package.json)" \
     "mcpb/manifest.json:$(jq -r '.version' "$REPO_ROOT/mcpb/manifest.json")" \
     "server.json:$(jq -r '.version' "$REPO_ROOT/server.json")" \
     "server.json/pkg:$(jq -r '.packages[0].version' "$REPO_ROOT/server.json")"; do
@@ -130,6 +132,13 @@ echo "✓ release verified"
 
 # ── npm + MCP registry ───────────────────────────────────────────────────
 echo "▶ npm publish"
+# The binary ships in the four platform packages, drengr only selects one. They
+# go first: drengr published before them would install with no binary behind it.
+for pair in aarch64-apple-darwin:darwin-arm64 x86_64-apple-darwin:darwin-x64 \
+            x86_64-unknown-linux-gnu:linux-x64 aarch64-unknown-linux-gnu:linux-arm64; do
+  cp "target/${pair%%:*}/release/drengr" "npm/platforms/${pair##*:}/drengr"
+  ( cd "npm/platforms/${pair##*:}" && npm publish --access public )
+done
 ( cd npm && npm publish --access public )
 
 echo "▶ MCP registry publish"

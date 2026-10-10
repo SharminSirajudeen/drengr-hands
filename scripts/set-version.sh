@@ -18,7 +18,10 @@ perl -i -pe 'if (!$d && s/^version = "[^"]*"/version = "'"$NEW"'"/) { $d=1 }' "$
 
 # JSON manifests via jq — exact paths, so nested versions are never clobbered.
 jq_inplace() { local f="$1"; shift; local t; t="$(mktemp)"; jq "$@" "$f" >"$t" && mv "$t" "$f"; }
-jq_inplace "$ROOT/npm/package.json"   --arg v "$NEW" '.version=$v'
+# The optional dependencies are the platform packages that carry the binary.
+# Left behind, a new drengr installs the previous version's binary.
+jq_inplace "$ROOT/npm/package.json"   --arg v "$NEW" '.version=$v | .optionalDependencies |= map_values($v)'
+for p in "$ROOT"/npm/platforms/*/package.json; do jq_inplace "$p" --arg v "$NEW" '.version=$v'; done
 jq_inplace "$ROOT/mcpb/manifest.json" --arg v "$NEW" '.version=$v'
 jq_inplace "$ROOT/server.json"        --arg v "$NEW" '.version=$v | .packages[].version=$v'
 
@@ -30,6 +33,8 @@ echo "→ version set to $NEW"
 declare -a sites=(
   "Cargo.toml:$(grep -m1 '^version = ' "$ROOT/Cargo.toml" | cut -d'"' -f2)"
   "npm:$(jq -r '.version' "$ROOT/npm/package.json")"
+  "npm/optionalDependencies:$(jq -r '[.optionalDependencies[]] | unique | join(",")' "$ROOT/npm/package.json")"
+  "npm/platforms:$(jq -rs 'map(.version) | unique | join(",")' "$ROOT"/npm/platforms/*/package.json)"
   "mcpb:$(jq -r '.version' "$ROOT/mcpb/manifest.json")"
   "server.json:$(jq -r '.version' "$ROOT/server.json")"
   "server.json/pkg:$(jq -r '.packages[0].version' "$ROOT/server.json")"
