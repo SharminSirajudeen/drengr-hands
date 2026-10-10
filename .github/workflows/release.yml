@@ -203,6 +203,11 @@ jobs:
       contents: write
 
     steps:
+      # The mcpb step reads mcpb/manifest.json from the repo. Without a checkout
+      # the workspace holds only the downloaded artifacts, which is what failed
+      # every 0.11.0 release attempt.
+      - uses: actions/checkout@v5
+
       - name: Download all artifacts
         uses: actions/download-artifact@v5
         with:
