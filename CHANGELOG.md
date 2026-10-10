@@ -18,6 +18,13 @@ released.
   pins, and both release paths refuse to publish when they disagree.
 - **The update check offered older versions as updates.** It compared versions
   with `!=`, so a build newer than npm's was told to `drengr update` back down.
+  It now follows semver, pre-releases included (`0.12.0-rc.1` < `0.12.0`).
+- **`drengr update` could swap this build for the proprietary one.** Outside
+  npm it ran drengr.dev/install.sh, which installs from drengr-community. npm
+  installs now update through npm, `cargo install` builds through cargo from
+  this repo, and anything else is pointed at the release page.
+- **"Already on the latest version"** is now "No newer version on npm", which is
+  what the check actually knows.
 - **`scripts/release-local.sh`** now publishes the platform packages that carry
   the binary, and checks versions on the tag it builds rather than the working
   tree.
