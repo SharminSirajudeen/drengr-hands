@@ -521,54 +521,81 @@ pub(crate) async fn print_update_notice() {
     }
 }
 
-/// Perform the actual update.
+/// Update the way this binary was installed: npm through npm, cargo through
+/// cargo from this repo. Anything else gets the release page. It never runs
+/// drengr.dev/install.sh, which installs the proprietary build from
+/// drengr-community.
 pub(crate) async fn do_update() -> anyhow::Result<()> {
     let current = env!("CARGO_PKG_VERSION");
     eprintln!("  Current version: {}", current);
     eprintln!("  Checking for updates...\n");
 
-    match drengr_hands::http::newer_npm_version().await {
+    let latest = match drengr_hands::http::newer_npm_version().await {
         Err(e) => anyhow::bail!(
             "could not reach the npm registry, so the installed version is unchecked: {e}"
         ),
-        Ok(Some(latest)) => {
-            eprintln!("  New version available: {}\n", latest);
-
-            let exe = std::env::current_exe().unwrap_or_default();
-            let exe_str = exe.to_string_lossy().to_string();
-            let is_npm = exe_str.contains("node_modules") || exe_str.contains("npm");
-
-            if is_npm {
-                eprintln!("  Updating via npm...");
-                let status = tokio::process::Command::new("npm")
-                    .args(["install", "-g", "drengr@latest"])
-                    .status()
-                    .await?;
-                if status.success() {
-                    eprintln!("  ✓ Updated to {}", latest);
-                } else {
-                    eprintln!("  ✗ npm update failed. Try: sudo npm install -g drengr@latest");
-                }
-            } else {
-                // Binary install — re-run install script
-                eprintln!("  Updating via install script...");
-                let status = tokio::process::Command::new("sh")
-                    .args(["-c", "curl -fsSL https://drengr.dev/install.sh | bash"])
-                    .status()
-                    .await?;
-                if status.success() {
-                    eprintln!("  ✓ Updated to {}", latest);
-                } else {
-                    eprintln!("  ✗ Update failed. Try manually:");
-                    eprintln!("    curl -fsSL https://drengr.dev/install.sh | bash");
-                }
-            }
-        }
         Ok(None) => {
-            eprintln!("  ✓ Already on the latest version ({})", current);
+            eprintln!("  ✓ No newer version on npm (installed: {})", current);
+            return Ok(());
         }
+        Ok(Some(latest)) => latest,
+    };
+    eprintln!("  New version available: {}\n", latest);
+
+    let tag = format!("v{latest}");
+    let exe = std::env::current_exe().unwrap_or_default();
+    let Some((program, args)) = update_command(&exe.to_string_lossy(), &tag) else {
+        let repo = env!("CARGO_PKG_REPOSITORY");
+        eprintln!("  Download {tag} for this platform from {repo}/releases/tag/{tag}");
+        return Ok(());
+    };
+    let status = tokio::process::Command::new(program)
+        .args(&args)
+        .status()
+        .await?;
+    if status.success() {
+        eprintln!("  ✓ Updated to {}", latest);
+    } else {
+        eprintln!("  ✗ Update failed. Try: {} {}", program, args.join(" "));
     }
     Ok(())
+}
+
+/// The command that updates a binary installed at `exe` to `tag`, or None when it
+/// was not installed by npm or cargo and has no in-place update.
+fn update_command(exe: &str, tag: &str) -> Option<(&'static str, Vec<String>)> {
+    let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect();
+    if exe.contains("node_modules") || exe.contains("npm") {
+        Some(("npm", args(&["install", "-g", "drengr@latest"])))
+    } else if exe.contains(".cargo/bin") {
+        let repo = env!("CARGO_PKG_REPOSITORY");
+        Some((
+            "cargo",
+            args(&["install", "--locked", "--git", repo, "--tag", tag]),
+        ))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod update_path {
+    use super::update_command;
+
+    #[test]
+    fn each_install_updates_through_its_own_tool() {
+        let npm = update_command("/usr/lib/node_modules/drengr-linux-x64/drengr", "v0.12.0");
+        assert_eq!(npm.unwrap().0, "npm");
+        let (prog, args) = update_command("/home/u/.cargo/bin/drengr", "v0.12.0").unwrap();
+        assert_eq!(prog, "cargo");
+        assert!(args.windows(2).any(|w| w == ["--tag", "v0.12.0"]));
+        assert!(args.contains(&env!("CARGO_PKG_REPOSITORY").to_string()));
+    }
+
+    #[test]
+    fn any_other_install_is_never_handed_to_the_proprietary_installer() {
+        assert!(update_command("/usr/local/bin/drengr", "v0.12.0").is_none());
+    }
 }
 
 #[tokio::main]
@@ -1068,7 +1095,7 @@ async fn main() -> anyhow::Result<()> {
                         println!("Update available: {} -> {}", current, latest);
                         println!("Run `drengr update` (or `npm i -g drengr@latest`) to upgrade in place.");
                     }
-                    Ok(None) => println!("Drengr is up to date ({}).", current),
+                    Ok(None) => println!("No newer version on npm (installed: {}).", current),
                     Err(e) => {
                         println!("Could not reach the npm registry, so {current} is unchecked: {e}")
                     }

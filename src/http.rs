@@ -45,14 +45,54 @@ pub async fn newer_npm_version() -> Result<Option<String>, String> {
     Ok(is_newer(latest, env!("CARGO_PKG_VERSION")).then(|| latest.to_string()))
 }
 
-/// `major.minor.patch` comparison. A version that does not parse is never newer,
-/// so a malformed registry answer cannot start a nag.
+/// Semver precedence: `major.minor.patch`, then a release outranks its own
+/// pre-releases (`0.12.0-rc.1` < `0.12.0`). Build metadata is ignored. A version
+/// that does not parse is never newer, so a malformed registry answer cannot
+/// start a nag.
 fn is_newer(latest: &str, current: &str) -> bool {
-    fn parse(v: &str) -> Option<(u64, u64, u64)> {
-        let mut it = v.split('-').next()?.split('.').map(|n| n.parse().ok());
-        Some((it.next()??, it.next()??, it.next()??))
+    match (parse_version(latest), parse_version(current)) {
+        (Some(l), Some(c)) => cmp_version(&l, &c).is_gt(),
+        _ => false,
     }
-    matches!((parse(latest), parse(current)), (Some(l), Some(c)) if l > c)
+}
+
+type Version<'a> = ((u64, u64, u64), Option<&'a str>);
+
+fn parse_version(v: &str) -> Option<Version<'_>> {
+    let v = v.split('+').next()?;
+    let (core, pre) = match v.split_once('-') {
+        Some((core, pre)) => (core, Some(pre)),
+        None => (v, None),
+    };
+    let mut it = core.split('.').map(|n| n.parse().ok());
+    let triple = (it.next()??, it.next()??, it.next()??);
+    it.next().is_none().then_some((triple, pre))
+}
+
+fn cmp_version(a: &Version, b: &Version) -> std::cmp::Ordering {
+    use std::cmp::Ordering::{Greater, Less};
+    a.0.cmp(&b.0).then_with(|| match (a.1, b.1) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => Greater,
+        (Some(_), None) => Less,
+        (Some(x), Some(y)) => cmp_pre_release(x, y),
+    })
+}
+
+/// Dot-separated identifiers left to right: numbers numerically and below words,
+/// words as text, and a shorter list below a longer one it prefixes.
+fn cmp_pre_release(x: &str, y: &str) -> std::cmp::Ordering {
+    let (xs, ys): (Vec<&str>, Vec<&str>) = (x.split('.').collect(), y.split('.').collect());
+    xs.iter()
+        .zip(&ys)
+        .map(|(a, b)| match (a.parse::<u64>(), b.parse::<u64>()) {
+            (Ok(m), Ok(n)) => m.cmp(&n),
+            (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+            (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+            _ => a.cmp(b),
+        })
+        .find(|o| o.is_ne())
+        .unwrap_or_else(|| xs.len().cmp(&ys.len()))
 }
 
 #[cfg(test)]
@@ -76,6 +116,23 @@ mod version_order {
         assert!(!is_newer("0.11.0", "0.11.0"));
         assert!(!is_newer("garbage", "0.11.0"));
         assert!(!is_newer("0.12", "0.11.0"));
+        assert!(!is_newer("0.12.0.1", "0.11.0"));
+    }
+
+    #[test]
+    fn a_release_outranks_its_pre_releases() {
+        assert!(is_newer("0.12.0", "0.12.0-rc.1"));
+        assert!(!is_newer("0.12.0-rc.1", "0.12.0"));
+        assert!(is_newer("0.12.0-rc.1", "0.11.0"));
+    }
+
+    #[test]
+    fn pre_release_identifiers_follow_semver_order() {
+        assert!(is_newer("0.12.0-rc.10", "0.12.0-rc.2"));
+        assert!(is_newer("0.12.0-rc", "0.12.0-beta"));
+        assert!(is_newer("0.12.0-rc.1", "0.12.0-rc"));
+        assert!(is_newer("0.12.0-alpha", "0.12.0-1"));
+        assert!(!is_newer("0.12.0+build.5", "0.12.0"));
     }
 }
 
