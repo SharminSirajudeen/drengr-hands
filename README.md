@@ -1,7 +1,6 @@
 # drengr-hands
 
 [![CI](https://github.com/SharminSirajudeen/drengr-hands/actions/workflows/rust-ci.yml/badge.svg)](https://github.com/SharminSirajudeen/drengr-hands/actions/workflows/rust-ci.yml)
-[![Crates.io](https://img.shields.io/crates/v/drengr-hands.svg)](https://crates.io/crates/drengr-hands)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Eyes and hands for AI agents on Android and iOS.**
@@ -118,7 +117,7 @@ agent can watch a whole flow without burning its context on pixels.
 ## Install
 
 ```bash
-cargo install drengr-hands
+cargo install --locked --git https://github.com/SharminSirajudeen/drengr-hands
 ```
 
 Needs the Android SDK platform-tools for Android, and Xcode for iOS.
