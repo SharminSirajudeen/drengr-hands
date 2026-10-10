@@ -33,6 +33,7 @@ pub fn client() -> &'static reqwest::Client {
 pub async fn newer_npm_version() -> Result<Option<String>, String> {
     let resp = client()
         .get("https://registry.npmjs.org/drengr/latest")
+        .timeout(Duration::from_secs(3))
         .send()
         .await
         .map_err(|e| e.to_string())?;

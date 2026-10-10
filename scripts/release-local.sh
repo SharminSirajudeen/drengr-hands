@@ -65,7 +65,8 @@ npm whoami     >/dev/null 2>&1       || { echo "✗ npm not authenticated — se
 # Version-consistency guard: every manifest must match Cargo.toml (VERSION is
 # derived from it). Prevents the drift that shipped a stale 0.9.4 lockfile —
 # scripts/set-version.sh keeps all sites in sync; this fails the release if not.
-if command -v jq >/dev/null; then
+command -v jq >/dev/null || { echo "✗ missing jq — brew install jq (the version guard needs it)"; exit 1; }
+{
   VNUM="${VERSION#v}"
   for chk in \
     "npm/package.json:$(jq -r '.version' "$REPO_ROOT/npm/package.json")" \
@@ -77,7 +78,7 @@ if command -v jq >/dev/null; then
     [ "${chk##*:}" = "$VNUM" ] || { echo "✗ version drift: ${chk%%:*} is ${chk##*:}, expected $VNUM — run scripts/set-version.sh $VNUM"; exit 1; }
   done
   echo "✓ version sites consistent at $VNUM"
-fi
+}
 
 # ── Clean, reproducible checkout of the tag ──────────────────────────────
 WT="$(mktemp -d)/drengr-$VERSION"
@@ -132,14 +133,22 @@ echo "✓ release verified"
 
 # ── npm + MCP registry ───────────────────────────────────────────────────
 echo "▶ npm publish"
+# A tag push also starts release.yml, which may publish this version first. The
+# version already being on npm is the goal, not a failure; anything else is.
+npm_publish() {
+  local out
+  out=$(cd "$1" && npm publish --access public 2>&1) && { echo "$out"; return 0; }
+  echo "$out"
+  grep -qiE "cannot publish over|EPUBLISHCONFLICT" <<<"$out"
+}
 # The binary ships in the four platform packages, drengr only selects one. They
 # go first: drengr published before them would install with no binary behind it.
 for pair in aarch64-apple-darwin:darwin-arm64 x86_64-apple-darwin:darwin-x64 \
             x86_64-unknown-linux-gnu:linux-x64 aarch64-unknown-linux-gnu:linux-arm64; do
   cp "target/${pair%%:*}/release/drengr" "npm/platforms/${pair##*:}/drengr"
-  ( cd "npm/platforms/${pair##*:}" && npm publish --access public )
+  npm_publish "npm/platforms/${pair##*:}"
 done
-( cd npm && npm publish --access public )
+npm_publish npm
 
 echo "▶ MCP registry publish"
 SEED=$(openssl pkey -in "$REPO_ROOT/mcp-registry-key.pem" -outform DER 2>/dev/null | tail -c 32 | xxd -p -c 64)

@@ -404,7 +404,13 @@ jobs:
 
           cd npm
           CURRENT=$(node -p "require('./package.json').version")
-          [ "$CURRENT" = "$VERSION" ] || npm version "$VERSION" --no-git-tag-version
+          # Fail rather than bump here: `npm version` leaves the platform pins
+          # behind, which is how drengr 0.11.0 came to install the 0.10.13 binary.
+          PINS=$(node -p "[...new Set(Object.values(require('./package.json').optionalDependencies))].join(',')")
+          if [ "$CURRENT" != "$VERSION" ] || [ "$PINS" != "$VERSION" ]; then
+            echo "::error::npm/package.json is ${CURRENT} with platform pins ${PINS}, expected ${VERSION}. Run scripts/set-version.sh ${VERSION}."
+            exit 1
+          fi
           publish_one "drengr" "."
 
       - name: Publish to MCP registry
