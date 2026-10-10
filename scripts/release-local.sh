@@ -25,10 +25,9 @@
 #      scripts/release-local.sh v0.9.2     # or pass an explicit tag
 #
 # Notes: builds from the *tag* in a throwaway git worktree (reproducible, never
-# touches your working tree). No GPG signing (CI does that with a secret) —
-# install.sh treats GPG as optional, so SHA256-only releases install fine. Only
-# the public drengr-hands release is made (install.sh + npm both pull there;
-# the CI's private "internal record" release is skipped).
+# touches your working tree). No GPG signing (CI does that with a secret); the
+# release carries SHA256 files only. Only the public drengr-hands release is
+# made (the CI's private "internal record" release is skipped).
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -68,24 +67,8 @@ WT="$(mktemp -d)/drengr-$VERSION"
 git -C "$REPO_ROOT" worktree add -f "$WT" "$VERSION" >/dev/null
 trap 'git -C "$REPO_ROOT" worktree remove "$WT" --force 2>/dev/null || true; rm -f /tmp/drengr-verify.tar.gz' EXIT
 cd "$WT"
-# Version-consistency guard, on the tag being built (not the working tree,
-# which can be ahead of it): every manifest must match the version. Prevents the
-# drift that shipped a stale 0.9.4 lockfile, and 0.11.0 pinning the 0.10.13
-# binaries. scripts/set-version.sh keeps all sites in sync.
-command -v jq >/dev/null || { echo "✗ missing jq — brew install jq (the version guard needs it)"; exit 1; }
-{
-  VNUM="${VERSION#v}"
-  for chk in \
-    "npm/package.json:$(jq -r '.version' "$WT/npm/package.json")" \
-    "npm/optionalDependencies:$(jq -r '[.optionalDependencies[]] | unique | join(",")' "$WT/npm/package.json")" \
-    "npm/platforms:$(jq -rs 'map(.version) | unique | join(",")' "$WT"/npm/platforms/*/package.json)" \
-    "mcpb/manifest.json:$(jq -r '.version' "$WT/mcpb/manifest.json")" \
-    "server.json:$(jq -r '.version' "$WT/server.json")" \
-    "server.json/pkg:$(jq -r '.packages[0].version' "$WT/server.json")"; do
-    [ "${chk##*:}" = "$VNUM" ] || { echo "✗ version drift: ${chk%%:*} is ${chk##*:}, expected $VNUM — run scripts/set-version.sh $VNUM"; exit 1; }
-  done
-  echo "✓ version sites consistent at $VNUM"
-}
+# Version guard, on the tag being built (the working tree can be ahead of it).
+"$REPO_ROOT/scripts/set-version.sh" --check "$VERSION" "$WT"
 export RUSTFLAGS="--remap-path-prefix=$WT=/drengr --remap-path-prefix=$HOME/.cargo/registry/src=/deps --remap-path-prefix=src/=/m/"
 
 # ── Build (macOS native, Linux via Zig) ──────────────────────────────────
@@ -112,9 +95,9 @@ NOTES="## Drengr ${VERSION}
 
 ### Install
 \`\`\`bash
-curl -fsSL https://drengr.dev/install.sh | bash
+npm install -g drengr
 \`\`\`
-Or: \`npm install -g drengr\`
+Or: \`cargo install --locked --git https://github.com/$RELEASE_REPO --tag $VERSION\`
 
 ### SHA256 Checksums
 \`\`\`
@@ -144,8 +127,9 @@ npm_publish() {
 }
 # The binary ships in the four platform packages, drengr only selects one. They
 # go first: drengr published before them would install with no binary behind it.
-for pair in aarch64-apple-darwin:darwin-arm64 x86_64-apple-darwin:darwin-x64 \
-            x86_64-unknown-linux-gnu:linux-x64 aarch64-unknown-linux-gnu:linux-arm64; do
+# Assigned first: a failing $(...) in a for list is ignored even under set -e.
+PLATFORMS="$("$REPO_ROOT/scripts/npm-platforms.sh")"
+for pair in $PLATFORMS; do
   cp "target/${pair%%:*}/release/drengr" "npm/platforms/${pair##*:}/drengr"
   npm_publish "npm/platforms/${pair##*:}"
 done
