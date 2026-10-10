@@ -62,29 +62,30 @@ if [ "$(uname -m)" = "arm64" ] && file "$(command -v gh)" 2>/dev/null | grep -q 
 fi
 npm whoami     >/dev/null 2>&1       || { echo "✗ npm not authenticated — set an Automation token in ~/.npmrc"; exit 1; }
 [ -f "$REPO_ROOT/mcp-registry-key.pem" ] || { echo "✗ mcp-registry-key.pem missing from repo root"; exit 1; }
-# Version-consistency guard: every manifest must match Cargo.toml (VERSION is
-# derived from it). Prevents the drift that shipped a stale 0.9.4 lockfile —
-# scripts/set-version.sh keeps all sites in sync; this fails the release if not.
-command -v jq >/dev/null || { echo "✗ missing jq — brew install jq (the version guard needs it)"; exit 1; }
-{
-  VNUM="${VERSION#v}"
-  for chk in \
-    "npm/package.json:$(jq -r '.version' "$REPO_ROOT/npm/package.json")" \
-    "npm/optionalDependencies:$(jq -r '[.optionalDependencies[]] | unique | join(",")' "$REPO_ROOT/npm/package.json")" \
-    "npm/platforms:$(jq -rs 'map(.version) | unique | join(",")' "$REPO_ROOT"/npm/platforms/*/package.json)" \
-    "mcpb/manifest.json:$(jq -r '.version' "$REPO_ROOT/mcpb/manifest.json")" \
-    "server.json:$(jq -r '.version' "$REPO_ROOT/server.json")" \
-    "server.json/pkg:$(jq -r '.packages[0].version' "$REPO_ROOT/server.json")"; do
-    [ "${chk##*:}" = "$VNUM" ] || { echo "✗ version drift: ${chk%%:*} is ${chk##*:}, expected $VNUM — run scripts/set-version.sh $VNUM"; exit 1; }
-  done
-  echo "✓ version sites consistent at $VNUM"
-}
 
 # ── Clean, reproducible checkout of the tag ──────────────────────────────
 WT="$(mktemp -d)/drengr-$VERSION"
 git -C "$REPO_ROOT" worktree add -f "$WT" "$VERSION" >/dev/null
 trap 'git -C "$REPO_ROOT" worktree remove "$WT" --force 2>/dev/null || true; rm -f /tmp/drengr-verify.tar.gz' EXIT
 cd "$WT"
+# Version-consistency guard, on the tag being built (not the working tree,
+# which can be ahead of it): every manifest must match the version. Prevents the
+# drift that shipped a stale 0.9.4 lockfile, and 0.11.0 pinning the 0.10.13
+# binaries. scripts/set-version.sh keeps all sites in sync.
+command -v jq >/dev/null || { echo "✗ missing jq — brew install jq (the version guard needs it)"; exit 1; }
+{
+  VNUM="${VERSION#v}"
+  for chk in \
+    "npm/package.json:$(jq -r '.version' "$WT/npm/package.json")" \
+    "npm/optionalDependencies:$(jq -r '[.optionalDependencies[]] | unique | join(",")' "$WT/npm/package.json")" \
+    "npm/platforms:$(jq -rs 'map(.version) | unique | join(",")' "$WT"/npm/platforms/*/package.json)" \
+    "mcpb/manifest.json:$(jq -r '.version' "$WT/mcpb/manifest.json")" \
+    "server.json:$(jq -r '.version' "$WT/server.json")" \
+    "server.json/pkg:$(jq -r '.packages[0].version' "$WT/server.json")"; do
+    [ "${chk##*:}" = "$VNUM" ] || { echo "✗ version drift: ${chk%%:*} is ${chk##*:}, expected $VNUM — run scripts/set-version.sh $VNUM"; exit 1; }
+  done
+  echo "✓ version sites consistent at $VNUM"
+}
 export RUSTFLAGS="--remap-path-prefix=$WT=/drengr --remap-path-prefix=$HOME/.cargo/registry/src=/deps --remap-path-prefix=src/=/m/"
 
 # ── Build (macOS native, Linux via Zig) ──────────────────────────────────

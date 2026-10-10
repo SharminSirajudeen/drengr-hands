@@ -1,6 +1,6 @@
 {
   "name": "drengr",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "mcpName": "dev.drengr/server",
   "description": "Eyes and hands for AI agents on mobile devices. MCP server for Android & iOS.",
   "homepage": "https://drengr.dev",
@@ -45,9 +45,9 @@
     "arm64"
   ],
   "optionalDependencies": {
-    "drengr-darwin-arm64": "0.11.0",
-    "drengr-darwin-x64": "0.11.0",
-    "drengr-linux-x64": "0.11.0",
-    "drengr-linux-arm64": "0.11.0"
+    "drengr-darwin-arm64": "0.11.1",
+    "drengr-darwin-x64": "0.11.1",
+    "drengr-linux-x64": "0.11.1",
+    "drengr-linux-arm64": "0.11.1"
   }
 }

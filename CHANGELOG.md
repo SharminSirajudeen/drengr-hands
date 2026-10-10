@@ -5,6 +5,24 @@ hands on mobile devices (Android + iOS).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## 0.11.1 — 2026-10-10
+
+The first published build of the open-source repo: 0.11.0 was tagged but never
+released.
+
+### Fixed
+- **0.11.0 never released.** The release job did not check out the repo, so it
+  could not find `mcpb/manifest.json` and stopped before publishing.
+- **npm `drengr` would have installed the previous binary.** Its platform
+  packages were still pinned to 0.10.13. `scripts/set-version.sh` now sets those
+  pins, and both release paths refuse to publish when they disagree.
+- **The update check offered older versions as updates.** It compared versions
+  with `!=`, so a build newer than npm's was told to `drengr update` back down.
+- **`scripts/release-local.sh`** now publishes the platform packages that carry
+  the binary, and checks versions on the tag it builds rather than the working
+  tree.
+- **README:** install from the repository; `drengr-hands` is not on crates.io.
+
 ## 0.11.0 — 2026-09-19
 
 First release from the open-source repo. Drengr's actuator now lives at
