@@ -510,26 +510,9 @@ pub(crate) fn init_logging() {
     }
 }
 
-/// Check npm registry for a newer version. Returns Some(latest) if update available.
-pub(crate) async fn check_for_update() -> Result<Option<String>, String> {
-    let current = env!("CARGO_PKG_VERSION");
-    let resp = drengr_hands::http::client()
-        .get("https://registry.npmjs.org/drengr/latest")
-        .timeout(std::time::Duration::from_secs(3))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
-    let latest = json
-        .get("version")
-        .and_then(|v| v.as_str())
-        .ok_or("registry returned no version")?;
-    Ok((latest != current).then(|| latest.to_string()))
-}
-
 /// Print update notice if a newer version is available (non-blocking, best-effort).
 pub(crate) async fn print_update_notice() {
-    if let Ok(Some(latest)) = check_for_update().await {
+    if let Ok(Some(latest)) = drengr_hands::http::newer_npm_version().await {
         let current = env!("CARGO_PKG_VERSION");
         eprintln!(
             "\n  ⬆ Update available: {} → {}\n  Run: drengr update",
@@ -544,7 +527,7 @@ pub(crate) async fn do_update() -> anyhow::Result<()> {
     eprintln!("  Current version: {}", current);
     eprintln!("  Checking for updates...\n");
 
-    match check_for_update().await {
+    match drengr_hands::http::newer_npm_version().await {
         Err(e) => anyhow::bail!(
             "could not reach the npm registry, so the installed version is unchecked: {e}"
         ),
@@ -1080,7 +1063,7 @@ async fn main() -> anyhow::Result<()> {
             if check {
                 init_logging();
                 let current = env!("CARGO_PKG_VERSION");
-                match check_for_update().await {
+                match drengr_hands::http::newer_npm_version().await {
                     Ok(Some(latest)) => {
                         println!("Update available: {} -> {}", current, latest);
                         println!("Run `drengr update` (or `npm i -g drengr@latest`) to upgrade in place.");
