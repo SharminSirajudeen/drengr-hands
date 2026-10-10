@@ -1,6 +1,6 @@
 {
   "name": "drengr-darwin-arm64",
-  "version": "0.10.13",
+  "version": "0.11.0",
   "description": "Drengr binary for darwin arm64. Installed automatically as an optional dependency of drengr.",
   "license": "MIT",
   "os": [

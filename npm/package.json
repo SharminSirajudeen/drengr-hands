@@ -45,9 +45,9 @@
     "arm64"
   ],
   "optionalDependencies": {
-    "drengr-darwin-arm64": "0.10.13",
-    "drengr-darwin-x64": "0.10.13",
-    "drengr-linux-x64": "0.10.13",
-    "drengr-linux-arm64": "0.10.13"
+    "drengr-darwin-arm64": "0.11.0",
+    "drengr-darwin-x64": "0.11.0",
+    "drengr-linux-x64": "0.11.0",
+    "drengr-linux-arm64": "0.11.0"
   }
 }
