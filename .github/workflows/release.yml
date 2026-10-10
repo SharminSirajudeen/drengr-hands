@@ -295,11 +295,11 @@ jobs:
 
           ### Install
           \`\`\`bash
-          curl -fsSL https://drengr.dev/install.sh | bash
-          \`\`\`
-          Or via npm:
-          \`\`\`bash
           npm install -g drengr
+          \`\`\`
+          Or with cargo:
+          \`\`\`bash
+          cargo install --locked --git https://github.com/${RELEASE_REPO} --tag ${VERSION}
           \`\`\`
 
           ### SHA256 Checksums
@@ -339,6 +339,11 @@ jobs:
           npm install -g npm@latest
           npm --version
 
+      # Fail rather than re-version here: the repo's manifests are what ships, and
+      # bumping only some of them is how drengr 0.11.0 came to pin 0.10.13 binaries.
+      - name: Check every version site matches the tag
+        run: scripts/set-version.sh --check "${{ needs.resolve.outputs.version }}"
+
       - name: Stage the platform packages
         run: |
           set -euo pipefail
@@ -349,20 +354,15 @@ jobs:
           # the right one from the package's own `os` and `cpu` fields, so no
           # lifecycle script has to download anything. npm v12 disables those
           # scripts by default, which is why the downloader could not stay.
-          for pair in "x86_64-apple-darwin:darwin-x64" \
-                      "aarch64-apple-darwin:darwin-arm64" \
-                      "x86_64-unknown-linux-gnu:linux-x64" \
-                      "aarch64-unknown-linux-gnu:linux-arm64"; do
+          # Assigned first: a failing $(...) in a for list is ignored even under set -e.
+          PLATFORMS="$(../scripts/npm-platforms.sh)"
+          for pair in $PLATFORMS; do
             TARGET="${pair%%:*}"; PKG="${pair##*:}"
             gh release download "${TAG}" --repo "${RELEASE_REPO}" \
               --pattern "drengr-${TAG}-${TARGET}.tar.gz" --dir . --clobber
             mkdir -p "pkg/${PKG}"
             tar xzf "drengr-${TAG}-${TARGET}.tar.gz" -C "pkg/${PKG}"
             cp "../npm/platforms/${PKG}/package.json" "pkg/${PKG}/package.json"
-            node -e "
-              const f='pkg/${PKG}/package.json', p=require('./'+f);
-              p.version='${VERSION}'; require('fs').writeFileSync(f, JSON.stringify(p,null,2)+'\n');
-            "
             test -x "pkg/${PKG}/drengr" || { echo "::error::no drengr binary in ${PKG}"; ls -R "pkg/${PKG}"; exit 1; }
           done
         env:
@@ -398,20 +398,12 @@ jobs:
           # Platform packages first: the main package declares them as optional
           # dependencies, so publishing it first would leave a window where an
           # install resolves nothing and the CLI has no binary.
-          for PKG in darwin-x64 darwin-arm64 linux-x64 linux-arm64; do
+          PLATFORMS="$(scripts/npm-platforms.sh)"
+          for PKG in $(cut -d: -f2 <<<"$PLATFORMS"); do
             publish_one "drengr-${PKG}" "dist/pkg/${PKG}"
           done
 
-          cd npm
-          CURRENT=$(node -p "require('./package.json').version")
-          # Fail rather than bump here: `npm version` leaves the platform pins
-          # behind, which is how drengr 0.11.0 came to install the 0.10.13 binary.
-          PINS=$(node -p "[...new Set(Object.values(require('./package.json').optionalDependencies))].join(',')")
-          if [ "$CURRENT" != "$VERSION" ] || [ "$PINS" != "$VERSION" ]; then
-            echo "::error::npm/package.json is ${CURRENT} with platform pins ${PINS}, expected ${VERSION}. Run scripts/set-version.sh ${VERSION}."
-            exit 1
-          fi
-          publish_one "drengr" "."
+          publish_one "drengr" "npm"
 
       - name: Publish to MCP registry
         run: |
