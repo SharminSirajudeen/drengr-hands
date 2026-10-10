@@ -1,6 +1,6 @@
 {
   "name": "drengr-linux-arm64",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Drengr binary for linux arm64. Installed automatically as an optional dependency of drengr.",
   "license": "MIT",
   "os": [
