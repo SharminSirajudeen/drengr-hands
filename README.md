@@ -123,11 +123,23 @@ cargo install --locked --git https://github.com/SharminSirajudeen/drengr-hands
 Needs the Android SDK platform-tools for Android, and Xcode for iOS.
 `drengr doctor` tells you what is missing.
 
-## Built by Drengr Analytics
+## Licence
 
-Drengr Analytics is zero-instrumentation mobile analytics — it understands what
-your app does without you writing tracking code, and redacts PII on the device
-before anything leaves it. This is the actuation layer, open-sourced.
-[drengr.dev](https://drengr.dev)
+MIT, all of it. There is no gated tier inside this repository and nothing here
+phones home.
 
-MIT.
+Anything Drengr sells stays outside this repository and plugs in as an optional
+provider or transport: a vision model tuned for screens that expose no
+accessibility tree (reached through `DRENGR_BASE_URL`, like any other
+endpoint), and cloud device sessions (one more transport, like Appium). The
+binary works without them, now and in every future version.
+
+## Research
+
+This repository is the reference vision-first agent in a benchmark of mobile
+GUI agents on apps where the accessibility tree is sparse or absent: Flutter,
+React Native, games, web-views and canvas UIs. The benchmark, harness and
+results will be published in 2027. To cite the tool, see
+[CITATION.cff](CITATION.cff).
+
+Part of [Drengr](https://drengr.dev).
