@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use drengr-hands in research, please cite it as below."
+type: software
+title: "drengr-hands: eyes and hands for AI agents on Android and iOS"
+authors:
+  - family-names: Sirajudeen
+    given-names: Sharmin
+    email: sharminsirajudeen11@gmail.com
+version: 0.11.1
+date-released: 2026-10-10
+license: MIT
+repository-code: https://github.com/SharminSirajudeen/drengr-hands
+url: https://drengr.dev
+abstract: >-
+  A vision-first actuation layer for mobile GUI agents. One Rust binary
+  observes Android emulators, iOS simulators and cloud devices from
+  screenshots and an optional accessibility tree, reports what changed after
+  every action, and exposes the loop as an MCP server. On iOS it embeds a
+  headless XCUITest runner in place of WebDriverAgent.
+keywords:
+  - GUI agents
+  - mobile testing
+  - Android
+  - iOS
+  - Model Context Protocol
