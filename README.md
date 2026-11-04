@@ -29,6 +29,10 @@ crashes, network calls — so your agent knows what its last action actually did
 Your agent is the brain. It never needs a key of its own, because the decision
 happens in the model you are already paying for.
 
+To teach an agent the loop and the pitfalls found on real runs, copy
+[`skills/drengr-mobile`](skills/drengr-mobile/SKILL.md) into its skills folder (for Claude Code,
+`~/.claude/skills/`).
+
 ## Or let it drive itself
 
 ```bash
