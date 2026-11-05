@@ -5,6 +5,13 @@ hands on mobile devices (Android + iOS).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## Unreleased
+
+### Added
+- **`skills/drengr-mobile`**, an agent skill (SKILL.md) that teaches any skills-aware agent the
+  setup, look, do and check loop over the three MCP tools, the close-the-keyboard-before-scrolling
+  pitfall, and an assert-backed report. The README points to it.
+
 ## 0.11.1 — 2026-10-10
 
 The first published build of the open-source repo: 0.11.0 was tagged but never
