@@ -42,12 +42,15 @@ user this setup. Do not install anything yourself unless they ask you to.
 1. **Observe** with `drengr_look(format="text")`: a numbered element list of about 300
    tokens. Use `format="image"` to judge layout, colour or anything the text leaves out, and
    `format="grid"` when `element_count` is 0 (Flutter, games, webviews, canvas).
-2. **Act** with `drengr_do`, using element numbers from the most recent response only. Numbers
-   are reassigned whenever the screen changes.
+2. **Act** with `drengr_do`, using element numbers you have just seen. A number names an element,
+   not a position: it stays the same while the element's label and rough position hold, and a
+   relabelled element (a counter, a timer) gets a new one. A gap in the numbers means an element
+   has left the screen.
    - Tap: `drengr_do(action="tap", element=4)`
    - Type: `drengr_do(action="type", text="lipstick", element=1)` focuses the field first;
      `action="clear_and_type"` replaces what is there.
-   - Submit: `drengr_do(action="key", keycode="enter")`
+   - Submit (Android): `drengr_do(action="key", keycode="enter")`. On iOS the only keys are
+     `home` and `back`; any other key returns an error.
    - Off-screen element: `drengr_do(action="tap", element_text="Checkout", scroll_to_find=true)`
    - No element tree: look with `format="grid"`, then
      `drengr_do(action="tap", x=0.5, y=0.82)` (fractions of the screen, 0 to 1).
@@ -70,10 +73,10 @@ user this setup. Do not install anything yourself unless they ask you to.
 
 ## 3. Close the keyboard before scrolling
 
-With the soft keyboard open, scroll attempts can type stray characters into the focused field
-(seen in drengr 0.10.13: "GT" once per scroll). Before a `swipe` or `scroll_to_find`, call
+On Android, with the soft keyboard open, each scroll can type "GT" into the focused field (seen
+on 0.10.13 and 0.11.1, issue #6). Before a `swipe` or `scroll_to_find`, call
 `drengr_query(question="keyboard")`; if `visible` is true, call `drengr_do(action="back")`
-first.
+first. On iOS `back` swipes back a screen instead, so tap outside the field.
 
 ## 4. Finish with proof
 
@@ -89,11 +92,11 @@ Report in this shape:
 
 ## Rules
 
-- Run destructive actions (`uninstall`, `clear_app_data`, `reset_app`, `install`) only when the
-  user asked for them.
+- Run an action marked `destructive: true` in `drengr_query(question="capabilities")` only when
+  the user asked for it.
 - Type credentials only when the user gave them for this task; prefer test accounts.
 - Unsure of an action's parameters: `drengr_query(question="capabilities")` returns the full
   catalog with an example for each. Do not guess.
 
-Two recorded runs, including a tap that did not do what was intended:
+Three recorded runs on 0.11.1, including a number that no longer exists and the keyboard pitfall:
 [references/examples.md](references/examples.md).
