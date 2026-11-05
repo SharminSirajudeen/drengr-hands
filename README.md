@@ -134,7 +134,7 @@ an example and the platforms it runs on. All run on Android and iOS except where
 ## What it can't do yet
 
 - **Drive a physical iPhone from your own Mac.** iOS runs on the Simulator, and on real
-  iPhones only through an Appium cloud (`--cloud`).
+  iPhones only through an Appium hub (`--cloud`: a vendor cloud or your own grid).
 - **Run on Windows.** Release binaries are macOS and Linux only.
 - **Serve MCP beyond your own machine.** `drengr mcp --http` listens on 127.0.0.1 only.
 
@@ -142,7 +142,7 @@ an example and the platforms it runs on. All run on Android and iOS except where
 
 Prebuilt binaries for macOS (Apple Silicon, Intel) and Linux (x86_64, arm64), each with a
 SHA-256 file, are on the [latest release](https://github.com/SharminSirajudeen/drengr-hands/releases/latest).
-Or build from source:
+Unpack it and put `drengr` on your PATH. Or build from source:
 
 ```bash
 cargo install --locked --git https://github.com/SharminSirajudeen/drengr-hands
