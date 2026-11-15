@@ -636,8 +636,9 @@ impl DeviceTransport for AdbTransport {
             // 279 = KEYCODE_PASTE — pastes the clipboard into the focused field.
             return Ok(());
         }
-        // Short string, or clipboard unavailable (API < 29) / paste failed: fall
-        // through to per-char injection so typing always works.
+        // Short string, or no clipboard shell command / paste failed: fall
+        // through to per-char injection. adbd runs exec-out through `sh -c`,
+        // and the adb client single-quotes each argument for it (escape_arg).
         for arg in input_text_args(text) {
             self.run(&["exec-out", "input", "text", &arg], 5).await?;
         }
@@ -1144,14 +1145,18 @@ impl DeviceTransport for AdbTransport {
     }
 
     async fn pasteboard_set(&self, text: &str) -> Result<()> {
-        // API 29+ has `cmd clipboard set-text`
+        // AOSP's ClipboardService has no shell command (android14-release and
+        // main), so `cmd clipboard` prints "No shell command implementation."
+        // to stderr and exits 0. Any output therefore means nothing was set.
         let safe_text = text.replace('\'', "'\\''");
         let out = self
-            .shell(&format!("cmd clipboard set-text '{}'", safe_text))
-            .await
-            .unwrap_or_default();
-        if out.contains("Unknown command") {
-            anyhow::bail!("pasteboard_set requires API 29+ or a companion APK")
+            .shell(&format!("cmd clipboard set-text '{}' 2>&1", safe_text))
+            .await?;
+        if !out.trim().is_empty() {
+            anyhow::bail!(
+                "pasteboard_set: the device did not set the clipboard: {}",
+                out.trim()
+            )
         }
         Ok(())
     }
