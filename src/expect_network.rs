@@ -83,26 +83,20 @@ impl ExpectOutcome {
 
 /// `*` is the only wildcard. Anchored at both ends.
 fn glob_match(pattern: &str, text: &str) -> bool {
-    let mut segments = pattern.split('*');
-    let Some(first) = segments.next() else {
-        return true;
+    let Some((head, rest)) = pattern.split_once('*') else {
+        return pattern == text;
     };
-    if !text.starts_with(first) {
+    let (middle, tail) = rest.rsplit_once('*').unwrap_or(("", rest));
+    let Some(mut free) = text.strip_prefix(head).and_then(|t| t.strip_suffix(tail)) else {
         return false;
-    }
-    let mut cursor = first.len();
-    let mut trailing_wildcard = pattern.starts_with('*') && pattern.len() == 1;
-    for segment in segments {
-        trailing_wildcard = segment.is_empty();
-        if segment.is_empty() {
-            continue;
-        }
-        match text[cursor..].find(segment) {
-            Some(at) => cursor += at + segment.len(),
+    };
+    for segment in middle.split('*') {
+        match free.find(segment) {
+            Some(at) => free = &free[at + segment.len()..],
             None => return false,
         }
     }
-    trailing_wildcard || cursor == text.len()
+    true
 }
 
 fn bodies_of(entry: &SinkEntry) -> [Option<&String>; 2] {
@@ -340,6 +334,36 @@ mod tests {
         assert!(glob_match("https://x.com/*", "https://x.com/v1/checkout"));
         assert!(glob_match("*checkout*", "https://x.com/v1/checkout?a=1"));
         assert!(!glob_match("*/orders", "https://x.com/v1/checkout"));
+    }
+
+    /// Brute-force glob: `m[i][j]` is whether `p[..i]` matches `t[..j]`.
+    fn reference_glob(p: &[u8], t: &[u8]) -> bool {
+        let mut m = vec![vec![false; t.len() + 1]; p.len() + 1];
+        m[0][0] = true;
+        for i in 1..=p.len() {
+            for j in 0..=t.len() {
+                m[i][j] = if p[i - 1] == b'*' {
+                    m[i - 1][j] || (j > 0 && m[i][j - 1])
+                } else {
+                    j > 0 && p[i - 1] == t[j - 1] && m[i - 1][j - 1]
+                };
+            }
+        }
+        m[p.len()][t.len()]
+    }
+
+    #[test]
+    fn glob_anchors_the_last_segment_at_the_end() {
+        assert!(glob_match("*b", "bb"));
+        assert!(glob_match("*/orders", "https://shop.com/orders/42/orders"));
+    }
+
+    proptest::proptest! {
+        #![proptest_config(crate::properties::config(2000))]
+        #[test]
+        fn glob_agrees_with_brute_force(p in "[ab*]{0,6}", t in "[ab]{0,8}") {
+            proptest::prop_assert_eq!(glob_match(&p, &t), reference_glob(p.as_bytes(), t.as_bytes()));
+        }
     }
 
     #[test]
