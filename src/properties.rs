@@ -4,7 +4,7 @@
 use proptest::prelude::*;
 use proptest::test_runner::{Config, RngSeed};
 
-pub(crate) const SEED: u64 = 0x5EED_D2E6;
+const SEED: u64 = 0x5EED_D2E6;
 
 pub(crate) fn config(cases: u32) -> Config {
     Config {
@@ -249,6 +249,16 @@ mod round_trip {
 
     proptest! {
         #![proptest_config(config(2000))]
+
+        /// XML lets a value be quoted with ' or ", and uiautomator picks ' for
+        /// a value that holds a " (seen on an API 34 emulator).
+        #[test]
+        fn extract_attr_ref_reads_either_quote(v in "[^'\"]{0,12}", single: bool) {
+            let (q, other) = if single { ('\'', '"') } else { ('"', '\'') };
+            let v = format!("{v}{other}");
+            let tag = format!("<node text={q}{v}{q} bounds=\"[0,0][1,1]\" />");
+            prop_assert_eq!(crate::transport::extract_attr_ref(&tag, "text"), Some(v.as_str()));
+        }
 
         #[test]
         fn parse_bounds_returns_the_four_numbers(l: i32, t: i32, r: i32, b: i32) {

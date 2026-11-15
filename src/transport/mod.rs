@@ -494,19 +494,22 @@ pub fn parse_bounds(s: &str) -> Option<Bounds> {
 
 /// Extract an XML attribute value as a borrowed slice (zero allocation).
 /// Use for boolean checks like `extract_attr_ref(tag, "clickable") == Some("true")`.
+/// XML quotes a value with `"` or `'`; uiautomator uses `'` for a value
+/// holding a `"`.
 pub fn extract_attr_ref<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
-    // Scan for `name="` without allocating a format string
+    // Scan for `name="` or `name='` without allocating a format string
     let name_bytes = name.as_bytes();
     let tag_bytes = tag.as_bytes();
     let mut i = 0;
     while i + name_bytes.len() + 2 <= tag_bytes.len() {
+        let quote = tag_bytes[i + name_bytes.len() + 1];
         if &tag_bytes[i..i + name_bytes.len()] == name_bytes
             && tag_bytes[i + name_bytes.len()] == b'='
-            && tag_bytes[i + name_bytes.len() + 1] == b'"'
+            && (quote == b'"' || quote == b'\'')
             && (i == 0 || tag_bytes[i - 1] == b' ' || tag_bytes[i - 1] == b'<')
         {
             let value_start = i + name_bytes.len() + 2;
-            if let Some(end) = tag[value_start..].find('"') {
+            if let Some(end) = tag[value_start..].find(char::from(quote)) {
                 return Some(&tag[value_start..value_start + end]);
             }
         }

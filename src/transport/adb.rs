@@ -1325,6 +1325,16 @@ mod tests {
     }
 
     #[test]
+    fn a_single_quoted_text_attribute_is_read() {
+        // Verbatim from Android E2E run 43758680600 (API 34), case #36.
+        let node = r#"<node index="0" text='_R=)!r*Z91:J;R"' class="android.widget.EditText" focused="true" bounds="[48,32][264,80]" />"#;
+        assert_eq!(
+            parse_ui_tree_xml(node).unwrap()[0].text,
+            r#"_R=)!r*Z91:J;R""#
+        );
+    }
+
+    #[test]
     fn the_send_text_model_reproduces_what_the_device_typed() {
         // Android E2E run 43758034983, API 34, the old "%" -> "%%" escaping.
         assert_eq!(send_text_model("50%%"), "50%%");
