@@ -184,7 +184,8 @@ async fn open_settings_search(t: &AdbTransport) -> anyhow::Result<()> {
     t.launch_app(SETTINGS_PKG).await?;
     tokio::time::sleep(Duration::from_secs(2)).await;
     for _ in 0..10 {
-        let tree = t.ui_tree().await?;
+        // A dump can fail while the app is still drawing; the next try decides.
+        let tree = t.ui_tree().await.unwrap_or_default();
         if tree.iter().any(|e| e.editable && e.focused) {
             return Ok(());
         }
@@ -228,12 +229,20 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
 
     let mut tally: std::collections::BTreeMap<(&str, &str), (u32, u32)> = Default::default();
     let mut failures = Vec::new();
+    let mut reopened = 0;
     for (i, text) in typing_cases().iter().enumerate() {
         let path = if text.chars().count() > PASTE_THRESHOLD {
             "paste"
         } else {
             "input"
         };
+        // Settings search closed by itself once on CI, between cases; reopen
+        // it so one lost screen does not hide the remaining cases.
+        if focused_field_text(&t).await.is_err() {
+            reopened += 1;
+            eprintln!("[typing] search field lost before #{i:02}; reopening");
+            open_settings_search(&t).await?;
+        }
         t.clear_focused_field().await?;
         let before = focused_field_text(&t).await?;
         let outcome = if before != empty {
@@ -276,6 +285,7 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
         );
     }
 
+    eprintln!("[typing] search reopened {reopened} times");
     eprintln!("[typing] summary (path, class): passed/total");
     for ((path, class), (pass, total)) in &tally {
         eprintln!("[typing]   {path:5} {class:12} {pass}/{total}");
