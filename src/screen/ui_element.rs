@@ -19,24 +19,26 @@ impl Bounds {
         }
     }
 
+    // Coordinates come from device text, so any i32 is possible: the
+    // midpoint is exact in i64, and sizes saturate instead of overflowing.
     pub fn center_x(&self) -> i32 {
-        (self.left + self.right) / 2
+        ((i64::from(self.left) + i64::from(self.right)) / 2) as i32
     }
 
     pub fn center_y(&self) -> i32 {
-        (self.top + self.bottom) / 2
+        ((i64::from(self.top) + i64::from(self.bottom)) / 2) as i32
     }
 
     pub fn width(&self) -> i32 {
-        self.right - self.left
+        self.right.saturating_sub(self.left)
     }
 
     pub fn height(&self) -> i32 {
-        self.bottom - self.top
+        self.bottom.saturating_sub(self.top)
     }
 
     pub fn area(&self) -> i32 {
-        self.width() * self.height()
+        self.width().saturating_mul(self.height())
     }
 
     /// Whether this bounds contains the given point.
@@ -255,6 +257,19 @@ pub struct DeviceInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounds_arithmetic_is_total_over_i32() {
+        let b = Bounds::new(i32::MIN, i32::MIN, i32::MAX, i32::MAX);
+        assert_eq!(
+            (b.width(), b.height(), b.area()),
+            (i32::MAX, i32::MAX, i32::MAX)
+        );
+        // (-2^31 + 2^31 - 1) / 2 = 0, truncated toward zero.
+        assert_eq!((b.center_x(), b.center_y()), (0, 0));
+        let edge = Bounds::new(i32::MAX, i32::MAX, i32::MAX, i32::MAX);
+        assert_eq!((edge.center_x(), edge.center_y()), (i32::MAX, i32::MAX));
+    }
 
     fn sample_element() -> UiElement {
         UiElement {
