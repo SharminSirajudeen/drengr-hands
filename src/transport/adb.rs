@@ -1249,10 +1249,11 @@ pub fn parse_logcat_lines(output: &str) -> Vec<crate::transport::LogEntry> {
         }
         // Try to parse structured logcat format
         // Example: "03-18 10:30:45.123  1234  5678 I MyTag   : Hello world"
-        if trimmed.len() > 33 {
-            let timestamp = &trimmed[..18];
+        // The 18-byte timestamp is ASCII; a line whose byte 18 splits a
+        // character is not in this format and goes to the fallback.
+        if let Some((timestamp, rest)) = trimmed.split_at_checked(18).filter(|_| trimmed.len() > 33)
+        {
             // Find the level character (single letter after PID/TID)
-            let rest = &trimmed[18..];
             if let Some(level_pos) = rest.find(['V', 'D', 'I', 'W', 'E', 'F']) {
                 let level = &rest[level_pos..level_pos + 1];
                 let after_level = rest[level_pos + 1..].trim_start();
@@ -1297,6 +1298,25 @@ fn escape_adb_text(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_logcat_line_split_mid_character_at_byte_18_falls_back_to_raw() {
+        // 'ೝ' is 3 bytes, at 16..19, so byte 18 is inside it.
+        let line = format!("{}ೝ{}", "a".repeat(16), "b".repeat(20));
+        let entries = parse_logcat_lines(&line);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            (entries[0].level.as_str(), entries[0].message.as_str()),
+            ("?", line.as_str())
+        );
+    }
+
+    #[test]
+    fn a_node_taller_than_i32_saturates_instead_of_overflowing() {
+        let els = parse_ui_tree_xml(r#"<node bounds="[0,-1023765252][1,1123718396]" />"#).unwrap();
+        assert_eq!(els[0].bounds.height(), i32::MAX);
+        assert!(els[0].visible);
+    }
 
     #[test]
     fn test_parse_screen_size_physical() {
