@@ -638,10 +638,9 @@ impl DeviceTransport for AdbTransport {
         }
         // Short string, or clipboard unavailable (API < 29) / paste failed: fall
         // through to per-char injection so typing always works.
-        // exec-out bypasses the device shell entirely — no metacharacter interp.
-        let escaped = escape_adb_text(text);
-        self.run(&["exec-out", "input", "text", &escaped], 5)
-            .await?;
+        for arg in input_text_args(text) {
+            self.run(&["exec-out", "input", "text", &arg], 5).await?;
+        }
         Ok(())
     }
 
@@ -1281,23 +1280,72 @@ pub fn parse_logcat_lines(output: &str) -> Vec<crate::transport::LogEntry> {
     entries
 }
 
-/// ADB `input text` escaping. Since we use exec-out (no device shell), only ADB-level
-/// special sequences need escaping: space → %s, percent → %%.
-fn escape_adb_text(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 16);
-    for c in text.chars() {
-        match c {
-            ' ' => out.push_str("%s"),
-            '%' => out.push_str("%%"),
-            c => out.push(c),
-        }
-    }
-    out
+/// Arguments for successive `input text` calls that together type `text`.
+/// `input text` rewrites "%s" to a space and nothing else (AOSP
+/// InputShellCommand.sendText), so a space goes as "%s", '%' goes as itself,
+/// and a literal "%s", which one call cannot express, is split between calls.
+fn input_text_args(text: &str) -> Vec<String> {
+    let parts: Vec<&str> = text.split("%s").collect();
+    let last = parts.len() - 1;
+    parts
+        .iter()
+        .enumerate()
+        .map(|(i, part)| {
+            let s = if i > 0 { "s" } else { "" };
+            let pct = if i < last { "%" } else { "" };
+            format!("{s}{part}{pct}").replace(' ', "%s")
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AOSP `InputShellCommand.sendText`, line for line: the only rewrite it
+    /// makes is "%s" -> " " (checked identical on android14-release and main).
+    fn send_text_model(arg: &str) -> String {
+        let mut buff: Vec<char> = arg.chars().collect();
+        let (mut escape, mut i) = (false, 0);
+        while i < buff.len() {
+            if escape {
+                escape = false;
+                if buff[i] == 's' {
+                    buff[i] = ' ';
+                    i -= 1;
+                    buff.remove(i);
+                }
+            }
+            if buff[i] == '%' {
+                escape = true;
+            }
+            i += 1;
+        }
+        buff.into_iter().collect()
+    }
+
+    #[test]
+    fn the_send_text_model_reproduces_what_the_device_typed() {
+        // Android E2E run 43758034983, API 34, the old "%" -> "%%" escaping.
+        assert_eq!(send_text_model("50%%"), "50%%");
+        assert_eq!(send_text_model("a%%sb"), "a% b");
+    }
+
+    #[test]
+    fn percent_and_a_literal_percent_s_type_as_written() {
+        assert_eq!(input_text_args("50%"), ["50%"]);
+        assert_eq!(input_text_args("a%sb"), ["a%", "sb"]);
+        assert_eq!(input_text_args("a b"), ["a%sb"]);
+    }
+
+    proptest::proptest! {
+        #![proptest_config(crate::properties::config(2000))]
+        #[test]
+        fn input_text_types_exactly_the_text(text in "[a%s ]{0,12}") {
+            let typed: String = input_text_args(&text).iter().map(|a| send_text_model(a)).collect();
+            proptest::prop_assert_eq!(typed, text);
+        }
+    }
 
     #[test]
     fn a_logcat_line_split_mid_character_at_byte_18_falls_back_to_raw() {
