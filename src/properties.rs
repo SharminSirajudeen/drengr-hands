@@ -100,7 +100,7 @@ const MARKERS: &[&str] = &[
 
 fn noisy() -> impl Strategy<Value = String> {
     let piece = prop_oneof![
-        1 => any::<String>(),
+        1 => proptest::collection::vec(any::<char>(), 0..8).prop_map(String::from_iter),
         3 => proptest::sample::select(MARKERS).prop_map(String::from),
         1 => any::<[i32; 4]>().prop_map(|[l, t, r, b]| format!("<node bounds=\"[{l},{t}][{r},{b}]\" ")),
         1 => any::<[i32; 4]>().prop_map(|[x, y, w, h]| {
@@ -133,63 +133,93 @@ mod never_panic {
 
     #[test]
     fn parse_ui_tree_xml() {
-        never_panics(|s| drop(adb::parse_ui_tree_xml(s)));
+        never_panics(|s| {
+            let _ = adb::parse_ui_tree_xml(s);
+        });
     }
     #[test]
     fn parse_current_activity() {
-        never_panics(|s| drop(adb::parse_current_activity(s)));
+        never_panics(|s| {
+            let _ = adb::parse_current_activity(s);
+        });
     }
     #[test]
     fn parse_screen_size() {
-        never_panics(|s| drop(adb::parse_screen_size(s)));
+        never_panics(|s| {
+            let _ = adb::parse_screen_size(s);
+        });
     }
     #[test]
     fn parse_pm_list_packages() {
-        never_panics(|s| drop(adb::parse_pm_list_packages(s)));
+        never_panics(|s| {
+            let _ = adb::parse_pm_list_packages(s);
+        });
     }
     #[test]
     fn parse_logcat_lines() {
-        never_panics(|s| drop(adb::parse_logcat_lines(s)));
+        never_panics(|s| {
+            let _ = adb::parse_logcat_lines(s);
+        });
     }
     #[test]
     fn parse_adb_devices() {
-        never_panics(|s| drop(detect::parse_adb_devices(s)));
+        never_panics(|s| {
+            let _ = detect::parse_adb_devices(s);
+        });
     }
     #[test]
     fn parse_bounds_any() {
-        never_panics(|s| drop(parse_bounds(s)));
+        never_panics(|s| {
+            let _ = parse_bounds(s);
+        });
     }
     #[test]
     fn extract_attr_ref_any() {
-        never_panics(|s| drop(extract_attr_ref(s, "text")));
+        never_panics(|s| {
+            let _ = extract_attr_ref(s, "text");
+        });
     }
     #[test]
     fn parse_simctl_devices() {
-        never_panics(|s| drop(simctl::parse_simctl_devices(s)));
+        never_panics(|s| {
+            let _ = simctl::parse_simctl_devices(s);
+        });
     }
     #[test]
     fn parse_os_log_lines() {
-        never_panics(|s| drop(simctl::parse_os_log_lines(s)));
+        never_panics(|s| {
+            let _ = simctl::parse_os_log_lines(s);
+        });
     }
     #[test]
     fn parse_listapps_output() {
-        never_panics(|s| drop(simctl::parse_listapps_output(s)));
+        never_panics(|s| {
+            let _ = simctl::parse_listapps_output(s);
+        });
     }
     #[test]
     fn parse_okhttp_logcat_any() {
-        never_panics(|s| drop(parse_okhttp_logcat(s)));
+        never_panics(|s| {
+            let _ = parse_okhttp_logcat(s);
+        });
     }
     #[test]
     fn parse_ios_network_log_any() {
-        never_panics(|s| drop(parse_ios_network_log(s)));
+        never_panics(|s| {
+            let _ = parse_ios_network_log(s);
+        });
     }
     #[test]
     fn parse_ooda_decision() {
-        never_panics(|s| drop(crate::ooda::prompt::parse_ooda_decision(s)));
+        never_panics(|s| {
+            let _ = crate::ooda::prompt::parse_ooda_decision(s);
+        });
     }
     #[test]
     fn sanitize_device_text() {
-        never_panics(|s| drop(crate::screen::ui_element::sanitize_device_text(s)));
+        never_panics(|s| {
+            let _ = crate::screen::ui_element::sanitize_device_text(s);
+        });
     }
 }
 

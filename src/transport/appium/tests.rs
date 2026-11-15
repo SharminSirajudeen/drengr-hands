@@ -755,7 +755,9 @@ async fn every_capability_gated_refusal_names_the_capability() {
 
 #[test]
 fn parse_page_source_never_panics() {
-    crate::properties::never_panics(|s| drop(super::source::parse_page_source(s)));
+    crate::properties::never_panics(|s| {
+        let _ = super::source::parse_page_source(s);
+    });
 }
 
 #[test]
