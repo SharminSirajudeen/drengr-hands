@@ -53,6 +53,16 @@ In release builds, bugs 2 and 3 do not panic: the arithmetic wraps and gives wro
 
 The path column labels each case by length, as `type_text` decides. Since fix 9, long text also goes through `input text`.
 
-**Still failing: any non-ASCII text, 0/34.** `input text` cannot type it. `KeyCharacterMap.getEvents` is documented to return null when the virtual key map cannot produce the characters, and `sendText` then reads `events.length` on that null (read in the AOSP source; not instrumented on the device). Stock Android 14 has no clipboard shell command (bug 9). Typing non-ASCII needs a different mechanism, which has not been built. The device test registers non-ASCII cases as expected-fail: they must not arrive intact, and one that does fails the test so it gets promoted to a plain assertion.
+**Non-ASCII text, 0/34 with `input text`.** `input text` cannot type it. `KeyCharacterMap.getEvents` is documented to return null when the virtual key map cannot produce the characters, and `sendText` then reads `events.length` on that null (read in the AOSP source; not instrumented on the device). Stock Android 14 has no clipboard shell command (bug 9).
+
+## Non-ASCII typing: the Drengr Keyboard
+
+`android-ime/` is a minimal input method (one Kotlin file, 21 KB APK) that the drengr binary embeds and installs on first use. `type_text` sends text that is non-ASCII or longer than 16 characters to it as base64 in an `am broadcast`. The keyboard commits the text into the focused editor and replies `result=1` only when an editor had started input; with no editor, the connection is a stub that reported success during the spike, so that case is checked. Your own keyboard is set back on every path and ours is disabled afterwards; the device test asserts both. Only senders holding `INJECT_EVENTS` (the adb shell) can deliver the broadcast.
+
+The device test found one more bug: `clear_focused_field` sent MOVE_END then DEL. In a right-to-left field the cursor sits at the logical start, where DEL deletes nothing, so Arabic text stayed in the field. It now also sends FORWARD_DEL.
+
+| Run | Device | ASCII | Arabic | Emoji | Arabic + emoji |
+|---|---|---|---|---|---|
+| local, fresh install | API 36 emulator (arm64) | 16/16 | 16/16 | 5/5 | 13/13 |
 
 The run before these two (43758034983) also failed the existing smoke test on its first launcher `ui_tree`. It passed on the next two runs, and the typing test now reopens Settings search if it closes (0 reopens in the after run).
