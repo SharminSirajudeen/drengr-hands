@@ -5,7 +5,7 @@ hands on mobile devices (Android + iOS).
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## Unreleased
+## 0.12.0 - 2026-11-16
 
 ### Added
 - **`drengr test` leaves evidence.** Each task gets a folder under `--evidence-dir`
@@ -32,6 +32,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`drengr suite [FILE]`** prints the suite as JSON with every key, so a wrapper reads
   what it adds to a task without parsing YAML itself.
 - `OodaResult` carries `outcome`, how the loop stopped, beside `success`.
+
+- **`drengr_query(network)` says whether an in-app reporter is connected**
+  (`sdk_connected`), and when the capture is empty it says why: nothing connected, or
+  connected and still waiting.
+
+### Changed
+- Library API: `NetworkEvent.url` is `Option<String>` (left out of the JSON when no URL
+  was seen), and `start_sdk_server` takes the presence counter as a third argument.
+- The network summary shows request and response body previews on every call that has
+  them, redacted and cut at 500 bytes. Before, only an error's response body showed, and
+  unredacted.
+
+### Fixed
+- A CFNetwork line with no URL no longer invents the URL `unknown`; the field is left
+  absent, and a URL check on such a call counts as unobservable, not as a miss.
+- `type_text`: `"50%"` typed `"50%%"` and `"a%sb"` typed `"a% b"`; on Android, a clipboard
+  paste that silently did nothing now fails and falls back to `input text`.
+- `glob_match`: `"*b"` did not match `"bb"`.
+- Integer overflow in `Bounds` arithmetic and in `parse_page_source` (`y + height`).
+- Panics on a logcat line with a multi-byte character at byte 18, and on the OODA reply
+  `"}0{"`.
+- `parse_adb_devices` dropped a ready device whose id contains `offline`.
+- `extract_attr_ref` read single-quoted attribute values as empty.
 
 ## 0.11.1 — 2026-10-10
 
