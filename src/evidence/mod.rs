@@ -102,7 +102,7 @@ impl Trail {
     ) {
         let mut entry = TrailStep {
             step,
-            action: action.to_string(),
+            action: crate::redact::redact_action(action),
             activity: activity.to_string(),
             screen_changed: false,
             activity_changed: false,
@@ -424,6 +424,23 @@ mod tests {
             tag: tag.into(),
             message: message.into(),
         }
+    }
+
+    #[test]
+    fn the_trail_never_holds_what_was_typed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut trail = Trail::new(Some(dir.path().to_path_buf()));
+        trail.acted(
+            1,
+            r#"Typed "hunter2pass""#,
+            "LoginActivity",
+            None,
+            None,
+            None,
+        );
+        let on_disk = std::fs::read_to_string(dir.path().join(TRAIL_FILE)).unwrap();
+        assert!(!on_disk.contains("hunter2pass"), "{on_disk}");
+        assert_eq!(trail.steps()[0].action, "Typed <typed 11-char mixed>");
     }
 
     #[test]

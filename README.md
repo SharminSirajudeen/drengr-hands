@@ -109,7 +109,7 @@ drengr test drengr-tests.yml --format json --output results.json --evidence-dir 
 ```
 
 Every task leaves evidence under `--evidence-dir` (default `~/.drengr/evidence/<run>`): on
-failure a PNG per executed step, `steps.json` with what each action changed, `network.json`
+failure a PNG per executed step, `steps.json` with what each action changed (typed text kept only as its length and kind), `network.json`
 with the calls it made (URL without its query string, method, status, duration; never
 headers, never bodies), `logs.txt` (OkHttp lines dropped whole, header and quoted-key
 secrets redacted) and `death.txt`, the process verdict; a passing task keeps `steps.json`
@@ -117,9 +117,6 @@ and `network.json` and drops its frames. The JSON result names each task's folde
 stopped (`crash`, `step_cap`, `timeout`, `error`, …) and the error when there was one, so
 a wrapper can say what a failure means without re-running anything. `--only a,b` runs the
 named tasks, and `drengr suite` prints the suite as JSON with every key.
-
-`drengr-qa` is that wrapper: it picks the tasks a pull request touched, classifies each
-failure from this evidence, and posts the page on the PR.
 
 ## How it works
 

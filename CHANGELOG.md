@@ -10,7 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 - **`drengr test` leaves evidence.** Each task gets a folder under `--evidence-dir`
   (default `~/.drengr/evidence/<unix-seconds>-<pid>`): a PNG per executed step and the
-  frame it was decided on, `steps.json` with what each action changed, `network.json`
+  frame it was decided on, `steps.json` with what each action changed (typed text kept
+  only as its length and kind), `network.json`
   with the calls it made (URL without its query string, method, status, duration; never
   headers or bodies), and on failure `logs.txt` (OkHttp lines dropped whole, header and
   quoted-key secrets redacted, cut to 200 lines after scrubbing) and `death.txt`, the
@@ -31,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`drengr suite [FILE]`** prints the suite as JSON with every key, so a wrapper reads
   what it adds to a task without parsing YAML itself.
 - `OodaResult` carries `outcome`, how the loop stopped, beside `success`.
+
 ## 0.11.1 — 2026-10-10
 
 The first published build of the open-source repo: 0.11.0 was tagged but never
