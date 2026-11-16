@@ -154,11 +154,23 @@ Needs the Android SDK platform-tools for Android, and Xcode for iOS.
 npm (`npx drengr`) and drengr.dev/install.sh still serve 0.10.13, built from the older
 drengr-community repository, until this repository's npm publishing is set up.
 
-## Built by Drengr Analytics
+## Licence
 
-Drengr Analytics is zero-instrumentation mobile analytics: it understands what
-your app does without you writing tracking code, and redacts PII on the device
-before anything leaves it. This is the actuation layer, open-sourced.
-[drengr.dev](https://drengr.dev)
+MIT, all of it: [LICENSE](LICENSE) covers every file here, and `npm/LICENSE`
+is the same text. There is no gated tier in this repository; a test
+(`no_public_file_reaches_for_a_closed_module` in `src/guards.rs`) fails if a
+licence check, quota, telemetry or sign-up surface comes back.
 
-MIT.
+It sends no usage data anywhere. The one call it makes to the internet without being
+asked is a version check: `drengr doctor` and the MCP server's first tool call
+ask the npm registry for the latest `drengr`.
+
+Anything Drengr sells stays outside this repository and plugs in through the
+same doors anyone can use: an OpenAI-compatible endpoint through
+`DRENGR_BASE_URL`, or a transport like Appium. The binary works without them.
+
+## Citing
+
+To cite drengr-hands in research, see [CITATION.cff](CITATION.cff).
+
+Part of [Drengr](https://drengr.dev).
