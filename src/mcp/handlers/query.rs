@@ -565,16 +565,24 @@ impl McpHandlers {
                 // what. A merged list with no provenance would read as one
                 // fidelity and quietly overstate the logcat and SDK entries.
                 let (sources, fidelity) = crate::network::sink::provenance(recent);
-                ToolResult::text(
-                    serde_json::to_string_pretty(&json!({
-                        "total_captured": history.len(),
-                        "returned": recent.len(),
-                        "sources": sources,
-                        "fidelity": fidelity,
-                        "calls": crate::network::sink::summarize(recent),
-                    }))
-                    .unwrap_or_default(),
-                )
+                let sdk_connected = self.sdk_presence.connected();
+                let mut body = json!({
+                    "total_captured": history.len(),
+                    "returned": recent.len(),
+                    "sdk_connected": sdk_connected,
+                    "sources": sources,
+                    "fidelity": fidelity,
+                    "calls": crate::network::sink::summarize(recent),
+                });
+                // An empty sink with nothing connected is blindness, not proof the app was quiet.
+                if history.is_empty() {
+                    body["note"] = json!(if sdk_connected {
+                        "An in-app reporter is connected but has reported no network calls yet."
+                    } else {
+                        "No in-app reporter is connected and the sink holds no calls. Empty here means nothing fed the sink, not that the app made no traffic. Connect an in-app reporter for bodies (source=in_app), or turn on OkHttp logcat logging for URL, method and status (source=logcat)."
+                    });
+                }
+                ToolResult::text(serde_json::to_string_pretty(&body).unwrap_or_default())
             }
             "app_state" => {
                 let transport = match self.resolve_transport(&args).await {

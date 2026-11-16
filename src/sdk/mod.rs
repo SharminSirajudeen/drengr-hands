@@ -2,6 +2,7 @@ pub mod messages;
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -95,6 +96,33 @@ impl RateBucket {
     }
 }
 
+/// How many authenticated in-app reporters are connected right now, so
+/// `drengr_query(network)` can tell an empty sink nobody fed from a quiet app.
+#[derive(Clone, Default)]
+pub struct SdkPresence {
+    active: Arc<AtomicUsize>,
+}
+
+impl SdkPresence {
+    pub fn connected(&self) -> bool {
+        self.active.load(Ordering::SeqCst) > 0
+    }
+
+    /// Counts one connection until the returned guard drops.
+    pub(crate) fn enter(&self) -> SdkPresenceGuard {
+        self.active.fetch_add(1, Ordering::SeqCst);
+        SdkPresenceGuard(self.active.clone())
+    }
+}
+
+pub(crate) struct SdkPresenceGuard(Arc<AtomicUsize>);
+
+impl Drop for SdkPresenceGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// Bounded store for screen/activity transitions.
 pub struct ScreenStore {
     screens: VecDeque<ScreenEntry>,
@@ -181,6 +209,7 @@ fn generate_sdk_token() -> Result<String> {
 pub async fn start_sdk_server(
     sink: NetworkSink,
     screen_store: Arc<Mutex<ScreenStore>>,
+    presence: SdkPresence,
 ) -> Result<()> {
     let port = std::env::var("DRENGR_SDK_PORT")
         .ok()
@@ -207,6 +236,7 @@ pub async fn start_sdk_server(
 
         let sink = sink.clone();
         let screen_store = screen_store.clone();
+        let presence = presence.clone();
         let expected_token = expected_token.clone();
         let permit = max_connections.clone().acquire_owned().await?;
         let peer_ip = addr.ip();
@@ -271,6 +301,8 @@ pub async fn start_sdk_server(
                 }
             }
 
+            // Counted from authentication until this task ends (disconnect or oversize frame).
+            let _presence = presence.enter();
             let mut bucket = RateBucket::new();
 
             loop {
@@ -679,5 +711,17 @@ mod tests {
                 "the cap must stay under the pre-hardening 1 MB"
             );
         }
+    }
+
+    #[test]
+    fn sdk_presence_clears_when_every_connection_guard_drops() {
+        let presence = SdkPresence::default();
+        assert!(!presence.connected());
+        let first = presence.enter();
+        let second = presence.enter();
+        drop(first);
+        assert!(presence.connected(), "one reporter is still connected");
+        drop(second);
+        assert!(!presence.connected(), "disconnect must clear presence");
     }
 }

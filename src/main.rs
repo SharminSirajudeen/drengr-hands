@@ -1091,7 +1091,12 @@ async fn main() -> anyhow::Result<()> {
                 drengr_hands::sdk::ScreenStore::new(),
             ));
 
-            drengr_hands::sdk::start_sdk_server(sink, screen_store).await
+            drengr_hands::sdk::start_sdk_server(
+                sink,
+                screen_store,
+                drengr_hands::sdk::SdkPresence::default(),
+            )
+            .await
         }
 
         Commands::Setup {

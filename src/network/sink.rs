@@ -232,17 +232,20 @@ pub fn summarize(entries: &[SinkEntry]) -> Value {
             if !entry.truncated.is_none() {
                 obj["truncated"] = json!(entry.truncated.as_str());
             }
+            // Every body the capture held, success or error, cut and with PII patterns redacted.
+            if let Some(body) = &e.request_body {
+                let cut = super::truncate_on_char_boundary(body, 500);
+                obj["request_preview"] = json!(crate::redact::redact(cut));
+            }
+            if let Some(body) = &e.response_body {
+                let cut = super::truncate_on_char_boundary(body, 500);
+                obj["response_preview"] = json!(crate::redact::redact(cut));
+            }
             // Only a status we actually saw can say error or not. With none, the
             // reader is told the status is unknown rather than shown a quiet
             // absence of "error" that reads as success.
             match e.is_error() {
-                Some(true) => {
-                    obj["error"] = json!(true);
-                    if let Some(body) = &e.response_body {
-                        let preview = super::truncate_on_char_boundary(body, 500);
-                        obj["response_preview"] = json!(preview);
-                    }
-                }
+                Some(true) => obj["error"] = json!(true),
                 Some(false) => {}
                 None => obj["status_unknown"] = json!(true),
             }
@@ -428,6 +431,22 @@ mod tests {
             arr[1].get("truncated").is_none(),
             "untruncated calls carry no flag"
         );
+    }
+
+    #[test]
+    fn summary_shows_redacted_bodies_on_a_successful_in_app_call() {
+        let sink = NetworkSink::new();
+        let mut e = with_bodies("https://api.example.com/login", 1);
+        e.request_body = Some(r#"{"email":"sharmin@example.com"}"#.to_string());
+        sink.push(NetworkSource::InApp, BodyTruncation::None, e);
+
+        let calls = summarize(&sink.snapshot());
+        let obj = &calls.as_array().unwrap()[0];
+        assert_eq!(obj["source"], "in_app");
+        assert_eq!(obj["status"], 200);
+        assert!(obj.get("error").is_none(), "200 is not an error");
+        assert_eq!(obj["request_preview"], r#"{"email":"<email>"}"#);
+        assert_eq!(obj["response_preview"], r#"{"ok":true}"#);
     }
 
     #[test]

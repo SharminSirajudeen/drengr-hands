@@ -68,6 +68,10 @@ pub struct McpHandlers {
     /// store was orphaned and no SDK event could ever be read back.
     network_history: NetworkSink,
 
+    /// Whether an authenticated in-app reporter is connected, so an empty
+    /// `drengr_query(network)` says whether anything was observing.
+    sdk_presence: crate::sdk::SdkPresence,
+
     /// Cached update notice — checked once on first tool call, shown once per session.
     update_notice: Arc<tokio::sync::Mutex<Option<String>>>,
     update_checked: std::sync::atomic::AtomicBool,
@@ -259,6 +263,7 @@ impl McpHandlers {
             app_package: Arc::new(Mutex::new(None)),
             session: Arc::new(Mutex::new(None)),
             network_history: NetworkSink::new(),
+            sdk_presence: crate::sdk::SdkPresence::default(),
             update_notice: Arc::new(tokio::sync::Mutex::new(None)),
             update_checked: std::sync::atomic::AtomicBool::new(false),
             welcomed: std::sync::atomic::AtomicBool::new(false),
@@ -284,9 +289,10 @@ impl McpHandlers {
             return;
         }
         let sink = self.network_history.clone();
+        let presence = self.sdk_presence.clone();
         tokio::spawn(async move {
             let screens = Arc::new(Mutex::new(crate::sdk::ScreenStore::new()));
-            if let Err(e) = crate::sdk::start_sdk_server(sink, screens).await {
+            if let Err(e) = crate::sdk::start_sdk_server(sink, screens, presence).await {
                 tracing::warn!(
                     "SDK listener not started ({e}) — in-app SDK events will not be captured"
                 );
