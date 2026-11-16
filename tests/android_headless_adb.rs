@@ -20,7 +20,7 @@
 
 use std::time::Duration;
 
-use drengr_hands::transport::adb::{AdbTransport, PASTE_THRESHOLD};
+use drengr_hands::transport::adb::{AdbTransport, IME_THRESHOLD};
 use drengr_hands::transport::DeviceTransport;
 
 const SETTINGS_PKG: &str = "com.android.settings";
@@ -117,8 +117,8 @@ fn typing_cases() -> Vec<String> {
         .chain(['😀', '🚀'])
         .collect();
     let short =
-        proptest::collection::vec(proptest::sample::select(pool.clone()), 1..=PASTE_THRESHOLD);
-    let long = proptest::collection::vec(proptest::sample::select(pool), PASTE_THRESHOLD + 1..=40);
+        proptest::collection::vec(proptest::sample::select(pool.clone()), 1..=IME_THRESHOLD);
+    let long = proptest::collection::vec(proptest::sample::select(pool), IME_THRESHOLD + 1..=40);
     let text =
         prop_oneof![short, long].prop_map(|v| v.into_iter().collect::<String>().trim().to_string());
     let mut runner = TestRunner::new(Config {
@@ -169,6 +169,13 @@ fn describe(tree: &[drengr_hands::screen::ui_element::UiElement]) -> String {
 }
 
 /// Text of the focused text field, or an error carrying the whole tree.
+fn device_shell(cmd: &str) -> anyhow::Result<String> {
+    let out = std::process::Command::new(drengr_hands::transport::adb::resolve_adb())
+        .args(["-s", &device_id(), "shell", cmd])
+        .output()?;
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 async fn focused_field_text(t: &AdbTransport) -> anyhow::Result<String> {
     let tree = t.ui_tree().await?;
     match tree.iter().find(|e| e.editable && e.focused) {
@@ -207,7 +214,7 @@ async fn open_settings_search(t: &AdbTransport) -> anyhow::Result<()> {
 
 /// Types each case through `type_text` into the Settings search box and reads
 /// it back from the UI tree. Runs every case, then fails once with all mismatches.
-/// Non-ASCII cases are expected to fail (known defect) and fail the test if they pass.
+/// The user's keyboard must be the default again afterwards, with ours disabled.
 #[tokio::test]
 async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
     let _device = DEVICE.lock().await;
@@ -226,12 +233,13 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
     let empty = focused_field_text(&t).await?;
     eprintln!("[typing] empty field reads {empty:?}");
 
+    let keyboard_before = device_shell("settings get secure default_input_method")?;
     let mut tally: std::collections::BTreeMap<(&str, &str), (u32, u32)> = Default::default();
     let mut failures = Vec::new();
     let mut reopened = 0;
     for (i, text) in typing_cases().iter().enumerate() {
-        let path = if text.chars().count() > PASTE_THRESHOLD {
-            "paste"
+        let path = if !text.is_ascii() || text.chars().count() > IME_THRESHOLD {
+            "ime"
         } else {
             "input"
         };
@@ -267,19 +275,8 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
         };
         let entry = tally.entry((path, char_class(text))).or_default();
         entry.1 += 1;
-        // Known defect: `input text` cannot type non-ASCII. Expected to fail;
-        // a pass means it was fixed and this case must become a plain assert.
-        let known_defect = !text.is_ascii();
         match &outcome {
-            Ok(()) => {
-                entry.0 += 1;
-                if known_defect {
-                    failures.push(format!(
-                        "#{i:02} {path} sent {text:?}: non-ASCII typed correctly; promote it from expected-fail"
-                    ));
-                }
-            }
-            Err(_) if known_defect => {}
+            Ok(()) => entry.0 += 1,
             Err(why) => {
                 if let Ok(raw) = t.raw_ui_tree().await {
                     let node = raw
@@ -308,6 +305,15 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
     for _ in 0..2 {
         t.press_key(drengr_hands::transport::keycode::BACK).await?;
     }
+    assert_eq!(
+        device_shell("settings get secure default_input_method")?,
+        keyboard_before,
+        "the user's keyboard was not restored"
+    );
+    assert!(
+        !device_shell("ime list -s")?.contains("dev.drengr.ime"),
+        "the Drengr Keyboard was left enabled"
+    );
     assert!(
         failures.is_empty(),
         "{} typed strings arrived changed:\n{}",
