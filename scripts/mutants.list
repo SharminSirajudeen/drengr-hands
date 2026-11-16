@@ -16,3 +16,6 @@ evidence: tail not cut after scrubbing	src/evidence/mod.rs	the_tail_is_cut_after
 evidence: dropped frames still named	src/evidence/mod.rs	a_passing_task_loses_its_frames	s/    let trail = forget_frames\(trail\);\n//
 loop: executed step not recorded	src/ooda/mod.rs	the_loop_records_every_executed_step	s/\n\s*trail\.acted\(\s*step,\s*&action_desc,\s*&post_activity,\s*Some\(&report\),\s*before,\s*after_frame,?\s*\);//s
 appium: wire count ignores the route	src/transport/appium/tests.rs	open_url_rejects_a_scheme_we_will_not_send	s/\.filter\(\|r\| r\.url\.path\(\) == want\)\n\s*\.count\(\)/.filter(|r| r.url.path() == want).count() * 0/
+network: CFNetwork url stand-in	src/network/logcat.rs	a_cfnetwork_status_line_with_no_url_leaves_url_absent	s/url: None,/url: Some("unknown".to_string()),/
+expect: missing url read as a glob miss	src/expect_network.rs	an_uncaptured_url_is_unobservable_not_a_failure	s/None => Field::Unknown,\n(\s+)Some\(g\) if glob_match/None => Field::Differs,\n$1Some(g) if glob_match/
+sink: absent url printed	src/network/sink.rs	summary_omits_url_when_the_capture_never_saw_one	s/if let Some\(url\) = e\.url\.as_deref\(\) \{\n(\s+)obj\["url"\] = json!\(shorten_url\(url\)\);\n\s+\}/obj["url"] = json!(e.url.as_deref().map(shorten_url));/

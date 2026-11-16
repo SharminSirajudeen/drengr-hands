@@ -43,7 +43,7 @@ pub fn parse_okhttp_logcat(logcat: &str) -> Vec<NetworkEvent> {
                     .then(|| pending_method.clone());
 
                 events.push(NetworkEvent {
-                    url,
+                    url: Some(url),
                     method,
                     status,
                     duration_ms,
@@ -136,10 +136,8 @@ fn parse_cfnetwork_response(line: &str) -> Option<NetworkEvent> {
     let status: u16 = status_str.parse().ok()?;
 
     Some(NetworkEvent {
-        // FIXME(url-sentinel): this line carries no URL either, and "unknown" is
-        // the same lie `method` and `status` just stopped telling. `url` needs to
-        // become Option too; the guard below records it rather than hiding it.
-        url: "unknown".to_string(),
+        // This line carries no URL. Leave the field absent.
+        url: None,
         method: None,
         status: Some(status),
         duration_ms: None,
@@ -231,7 +229,10 @@ mod tests {
         let events = parse_okhttp_logcat(logcat);
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].method.as_deref(), Some("POST"));
-        assert_eq!(events[0].url, "https://api.example.com/login");
+        assert_eq!(
+            events[0].url.as_deref(),
+            Some("https://api.example.com/login")
+        );
         assert_eq!(events[0].status, Some(200));
         assert_eq!(events[0].duration_ms, Some(507));
         assert_eq!(
@@ -273,8 +274,8 @@ I okhttp.OkHttpClient: <-- END HTTP (201ms, 11-byte body)"#;
 
         let events = parse_okhttp_logcat(logcat);
         assert_eq!(events.len(), 2);
-        assert_eq!(events[0].url, "https://api.example.com/a");
-        assert_eq!(events[1].url, "https://api.example.com/b");
+        assert_eq!(events[0].url.as_deref(), Some("https://api.example.com/a"));
+        assert_eq!(events[1].url.as_deref(), Some("https://api.example.com/b"));
     }
 
     #[test]
@@ -299,5 +300,21 @@ I okhttp.OkHttpClient: <-- END HTTP (201ms, 11-byte body)"#;
         );
         // A line with no duration did not take 0ms; it was never timed.
         assert_eq!(extract_duration_ms("no duration here"), None);
+    }
+
+    #[test]
+    fn a_cfnetwork_status_line_with_no_url_leaves_url_absent() {
+        let events = parse_ios_network_log("Task <1>.<2> received response, status 200 content K");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].status, Some(200));
+        assert!(
+            events[0].url.is_none(),
+            "CFNetwork minted a URL it did not read"
+        );
+        let json = serde_json::to_string(&events[0]).unwrap();
+        assert!(
+            !json.contains("\"url\""),
+            "absent url must be omitted, got {json}"
+        );
     }
 }

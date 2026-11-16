@@ -538,7 +538,15 @@ impl McpHandlers {
 
                 if let Some(url_pat) = url_filter {
                     let pat_lower = url_pat.to_lowercase();
-                    events.retain(|e| e.event.url.to_lowercase().contains(&pat_lower));
+                    // An event whose URL was never captured does not match a
+                    // URL filter. It is excluded because it is unknown, not
+                    // because it is known to differ.
+                    events.retain(|e| {
+                        e.event
+                            .url
+                            .as_deref()
+                            .is_some_and(|u| u.to_lowercase().contains(&pat_lower))
+                    });
                 }
                 if let Some(status) = status_filter {
                     // An event whose status was never captured does not match a
@@ -1007,12 +1015,15 @@ impl McpHandlers {
             .iter()
             .filter(|e| e.event.is_error() == Some(true))
             .map(|e| {
-                json!({
-                    "url": e.event.url,
+                let mut call = json!({
                     "status": e.event.status,
                     "method": e.event.method,
                     "source": e.source.as_str(),
-                })
+                });
+                if let Some(url) = &e.event.url {
+                    call["url"] = json!(url);
+                }
+                call
             })
             .collect();
 

@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize};
 /// A captured HTTP network event from the SDK.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkEvent {
-    pub url: String,
+    /// The request URL, when the capture actually learned it. `None` means the
+    /// line carried no URL. It is not a URL called "unknown".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     /// The HTTP method, when the capture actually learned it. `None` means the
     /// request line was never matched to this response, which is not the same
     /// as a request that had no method.
@@ -77,15 +80,6 @@ mod capture_honesty_guard {
         ),
     ];
 
-    /// Construction sites that still carry a sentinel, with why it is not yet
-    /// fixed. An entry here is a deliberate, reviewable admission of a remaining
-    /// lie, not a place to park new ones.
-    const ALLOWED: &[(&str, &str)] = &[(
-        "logcat.rs:parse_cfnetwork_response:url",
-        "the CFNetwork status line genuinely carries no URL; making `url` an Option ripples \
-             through every glob match and is its own change. Tracked as FIXME(url-sentinel).",
-    )];
-
     /// The fields a capture can fail to read. A sentinel only matters when the
     /// statement minting it is about one of these.
     const POISONED_FIELDS: &[&str] = &[
@@ -96,16 +90,6 @@ mod capture_honesty_guard {
         "request_size",
         "response_size",
     ];
-
-    /// Which field a sentinel poisons, so an allowlist entry excuses one field
-    /// at one site rather than every sentinel in the file.
-    fn field_of(sentinel: &str) -> &'static str {
-        match sentinel {
-            "\"?\"" => "method",
-            "\"unknown\"" => "url",
-            _ => "status",
-        }
-    }
 
     /// Every `NetworkEvent { .. }` literal body in a file, brace-matched.
     ///
@@ -162,7 +146,6 @@ mod capture_honesty_guard {
             if !code.contains("NetworkEvent {") {
                 continue;
             }
-            let base = name.rsplit('/').next().unwrap_or(name);
             // This guard's own tables name every sentinel, so skip its source.
             let policed = match code.find("mod capture_honesty_guard {") {
                 Some(at) => &code[..at],
@@ -183,14 +166,9 @@ mod capture_honesty_guard {
                     if !POISONED_FIELDS.iter().any(|f| window.contains(f)) {
                         continue;
                     }
-                    let allowed = ALLOWED.iter().any(|(site, _)| {
-                        site.starts_with(base) && site.ends_with(field_of(sentinel))
-                    });
-                    if !allowed {
-                        offenders.push(format!(
-                            "{name}:{line} mints {sentinel} for a NetworkEvent field — {why}"
-                        ));
-                    }
+                    offenders.push(format!(
+                        "{name}:{line} mints {sentinel} for a NetworkEvent field: {why}"
+                    ));
                 }
             }
         }
@@ -211,7 +189,7 @@ mod tests {
 
     fn sample_event() -> NetworkEvent {
         NetworkEvent {
-            url: "/api/login".to_string(),
+            url: Some("/api/login".to_string()),
             method: Some("POST".to_string()),
             status: Some(200),
             duration_ms: Some(150),
@@ -259,7 +237,7 @@ mod tests {
         let event = sample_event();
         let json = serde_json::to_string(&event).unwrap();
         let back: NetworkEvent = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.url, "/api/login");
+        assert_eq!(back.url.as_deref(), Some("/api/login"));
         assert_eq!(back.status, Some(200));
         assert_eq!(back.duration_ms, Some(150));
     }

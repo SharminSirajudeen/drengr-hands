@@ -371,7 +371,9 @@ async fn handle_sdk_message(
                 NetworkSource::InApp,
                 truncated,
                 NetworkEvent {
-                    url,
+                    // An SDK that sent no URL told us nothing about it. It did
+                    // not tell us the URL was "".
+                    url: (!url.is_empty()).then_some(url),
                     // An SDK that sent no method told us nothing about it. It did
                     // not tell us the method was "".
                     method: (!method.is_empty()).then_some(method),
@@ -543,7 +545,7 @@ mod tests {
             "an SDK event that reaches no sink is unreadable"
         );
         assert_eq!(entries[0].source, NetworkSource::InApp);
-        assert_eq!(entries[0].event.url, "/api/login");
+        assert_eq!(entries[0].event.url.as_deref(), Some("/api/login"));
         assert_eq!(entries[0].event.status, Some(200));
     }
 
@@ -580,7 +582,7 @@ mod tests {
         handle_sdk_message(SdkMessage::decode(wire).unwrap(), &sink, &screen_store).await;
 
         let entries = sink.snapshot();
-        assert_eq!(entries[0].event.url, "/old");
+        assert_eq!(entries[0].event.url.as_deref(), Some("/old"));
         assert_eq!(entries[0].event.status, Some(204));
         assert!(entries[0].event.request_body.is_none());
         assert_eq!(entries[0].truncated, BodyTruncation::None);

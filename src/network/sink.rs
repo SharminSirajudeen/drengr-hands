@@ -219,10 +219,13 @@ pub fn summarize(entries: &[SinkEntry]) -> Value {
             let e = &entry.event;
             let mut obj = json!({
                 "method": e.method,
-                "url": shorten_url(&e.url),
                 "status": e.status,
                 "source": entry.source.as_str(),
             });
+            // A capture that never saw a URL must not invent one, so the key is omitted.
+            if let Some(url) = e.url.as_deref() {
+                obj["url"] = json!(shorten_url(url));
+            }
             if let Some(ms) = e.duration_ms {
                 obj["duration_ms"] = json!(ms);
             }
@@ -287,7 +290,7 @@ mod tests {
 
     fn event(url: &str, ts: u64) -> NetworkEvent {
         NetworkEvent {
-            url: url.to_string(),
+            url: Some(url.to_string()),
             method: Some("GET".to_string()),
             status: Some(200),
             duration_ms: Some(10),
@@ -428,6 +431,21 @@ mod tests {
     }
 
     #[test]
+    fn summary_omits_url_when_the_capture_never_saw_one() {
+        let sink = NetworkSink::new();
+        let mut e = event("/placeholder", 1);
+        e.url = None;
+        sink.push(NetworkSource::Logcat, BodyTruncation::None, e);
+
+        let calls = summarize(&sink.snapshot());
+        let obj = &calls.as_array().unwrap()[0];
+        assert!(
+            obj.get("url").is_none(),
+            "absent url must be omitted, got {obj}"
+        );
+    }
+
+    #[test]
     fn provenance_counts_only_sources_present() {
         let sink = NetworkSink::new();
         sink.push(NetworkSource::Logcat, BodyTruncation::None, event("/a", 1));
@@ -461,7 +479,7 @@ mod tests {
 
         let window = sink.since(150);
         assert_eq!(window.len(), 1);
-        assert_eq!(window[0].event.url, "/new");
+        assert_eq!(window[0].event.url.as_deref(), Some("/new"));
     }
 
     #[test]
@@ -474,12 +492,12 @@ mod tests {
 
         let drained = sink.drain(NetworkSource::InApp);
         assert_eq!(drained.len(), 2);
-        assert_eq!(drained[0].event.url, "/m1");
+        assert_eq!(drained[0].event.url.as_deref(), Some("/m1"));
 
         let left = sink.snapshot();
         assert_eq!(left.len(), 2);
-        assert_eq!(left[0].event.url, "/l1");
-        assert_eq!(left[1].event.url, "/l2");
+        assert_eq!(left[0].event.url.as_deref(), Some("/l1"));
+        assert_eq!(left[1].event.url.as_deref(), Some("/l2"));
         assert!(left.iter().all(|e| e.source == NetworkSource::Logcat));
     }
 
@@ -495,7 +513,7 @@ mod tests {
         }
         let snap = sink.snapshot();
         assert_eq!(snap.len(), MAX_EVENTS);
-        assert_eq!(snap.first().unwrap().event.url, "/50");
+        assert_eq!(snap.first().unwrap().event.url.as_deref(), Some("/50"));
     }
 
     #[test]
