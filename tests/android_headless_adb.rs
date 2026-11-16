@@ -168,14 +168,15 @@ fn describe(tree: &[drengr_hands::screen::ui_element::UiElement]) -> String {
         .join("\n")
 }
 
-/// Text of the focused text field, or an error carrying the whole tree.
 fn device_shell(cmd: &str) -> anyhow::Result<String> {
     let out = std::process::Command::new(drengr_hands::transport::adb::resolve_adb())
         .args(["-s", &device_id(), "shell", cmd])
         .output()?;
+    anyhow::ensure!(out.status.success(), "adb shell {cmd} failed: {out:?}");
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Text of the focused text field, or an error carrying the whole tree.
 async fn focused_field_text(t: &AdbTransport) -> anyhow::Result<String> {
     let tree = t.ui_tree().await?;
     match tree.iter().find(|e| e.editable && e.focused) {
@@ -264,11 +265,11 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
                 Err(e) => Err(format!("type_text error: {e}")),
                 Ok(()) => {
                     tokio::time::sleep(Duration::from_millis(800)).await;
-                    let got = focused_field_text(&t).await?;
-                    if got == *text {
-                        Ok(())
-                    } else {
-                        Err(format!("got {got:?}"))
+                    // A lost field fails this case only; the next one reopens search.
+                    match focused_field_text(&t).await {
+                        Ok(got) if got == *text => Ok(()),
+                        Ok(got) => Err(format!("got {got:?}")),
+                        Err(e) => Err(format!("field lost after typing: {e}")),
                     }
                 }
             }

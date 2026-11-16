@@ -51,7 +51,7 @@ In release builds, bugs 2 and 3 do not panic: the arithmetic wraps and gives wro
 | paste (> 16) | ASCII | 0/2 | 2/2 |
 | both | Arabic and/or emoji | 0/34 | 0/34 |
 
-The path column labels each case by length, as `type_text` decides. Since fix 9, long text also goes through `input text`.
+The path column labels each case by length, as `type_text` decided at the time. Since the Drengr Keyboard (below), long and non-ASCII text goes through it instead.
 
 **Non-ASCII text, 0/34 with `input text`.** `input text` cannot type it. `KeyCharacterMap.getEvents` is documented to return null when the virtual key map cannot produce the characters, and `sendText` then reads `events.length` on that null (read in the AOSP source; not instrumented on the device). Stock Android 14 has no clipboard shell command (bug 9).
 

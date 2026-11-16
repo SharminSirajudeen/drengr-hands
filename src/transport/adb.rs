@@ -305,8 +305,10 @@ impl AdbTransport {
     }
 
     /// Types `text` through the Drengr Keyboard, then gives the user back their
-    /// own keyboard on every path and leaves ours disabled.
-    async fn type_with_ime(&self, text: &str) -> Result<()> {
+    /// own keyboard on every path and leaves ours disabled. `Err`: the keyboard
+    /// could not be selected and nothing was typed. `Ok(outcome)`: a commit was
+    /// attempted, so the caller must not type the text again whatever happened.
+    async fn type_with_ime(&self, text: &str) -> Result<Result<()>> {
         // `pm path` exits 1 for a missing package; `pm list` exits 0 and
         // matches substrings, hence the exact line.
         let listed = self
@@ -331,30 +333,37 @@ impl AdbTransport {
             .shell("settings get secure default_input_method")
             .await?;
         let previous = previous.trim();
-        let typed = self.commit_with_ime(text).await;
+        let selected = self.select_ime().await;
+        let typed = match &selected {
+            Ok(()) => self.commit_with_ime(text).await,
+            Err(_) => Ok(()),
+        };
         let restore = if is_ime_id(previous) && previous != IME_ID {
             format!("ime set {previous}; ime disable {IME_ID}")
         } else {
             format!("ime disable {IME_ID}")
         };
         let restored = self.shell(&restore).await;
-        typed.and(restored.map(drop))
+        selected?;
+        Ok(typed.and(restored.map(drop)))
     }
 
-    async fn commit_with_ime(&self, text: &str) -> Result<()> {
-        // Straight after install the package manager may not list it yet
-        // ("Unknown input method"), so enabling is retried.
-        let mut enabled = false;
+    async fn select_ime(&self) -> Result<()> {
+        // Straight after install the package manager may not list it yet: API
+        // 30+ exits non-zero ("Unknown input method" on stderr), so a failed
+        // call is retried too. API 26-28 print "now enabled" without "for user".
         for _ in 0..20 {
-            let out = self.shell(&format!("ime enable {IME_ID}")).await?;
-            if out.contains("enabled for user") && !out.contains("Unknown") {
-                enabled = true;
-                break;
+            let out = self.shell(&format!("ime enable {IME_ID}")).await;
+            if out.is_ok_and(|o| o.contains("now enabled") || o.contains("already enabled")) {
+                self.shell(&format!("ime set {IME_ID}")).await?;
+                return Ok(());
             }
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         }
-        anyhow::ensure!(enabled, "the device did not enable the Drengr Keyboard");
-        self.shell(&format!("ime set {IME_ID}")).await?;
+        anyhow::bail!("the device did not enable the Drengr Keyboard")
+    }
+
+    async fn commit_with_ime(&self, text: &str) -> Result<()> {
         // Base64 keeps the text away from the device shell. The keyboard answers
         // result=1 only once it has committed into an editor, which takes a
         // moment after the switch.
@@ -724,7 +733,7 @@ impl DeviceTransport for AdbTransport {
         // `input text` on a device that refuses the keyboard.
         if !text.is_ascii() || text.chars().count() > IME_THRESHOLD {
             match self.type_with_ime(text).await {
-                Ok(()) => return Ok(()),
+                Ok(outcome) => return outcome,
                 Err(e) if !text.is_ascii() => return Err(e),
                 Err(e) => {
                     tracing::warn!("Drengr Keyboard unavailable, typing per character: {e:#}")
@@ -1840,19 +1849,20 @@ mod tests {
     }
 
     /// A fake device whose keyboard is `com.example/.Kbd`; every adb call is
-    /// logged, and `am broadcast` answers with `broadcast`.
+    /// logged. `cases` are shell `case` arms tried before the defaults.
     #[cfg(unix)]
-    fn fake_keyboard_device(dir: &std::path::Path, broadcast: &str) -> AdbTransport {
+    fn fake_keyboard_device(dir: &std::path::Path, cases: &str) -> AdbTransport {
         let log = dir.join("calls");
         fake_adb(
             dir,
             &format!(
                 r#"echo "$*" >> '{}'
 case "$*" in
+  {cases}
   *"pm list packages"*) echo package:dev.drengr.ime.extra; echo package:dev.drengr.ime;;
   *"settings get"*) echo com.example/.Kbd;;
-  *"ime enable"*) echo "Input method dev.drengr.ime/.DrengrIme: now enabled for user #0";;
-  *"am broadcast"*) {broadcast};;
+  *"ime enable"*) echo "Input method dev.drengr.ime/.DrengrIme: now enabled";;
+  *"am broadcast"*) echo 'Broadcast completed: result=1';;
 esac"#,
                 log.display()
             ),
@@ -1863,7 +1873,7 @@ esac"#,
     #[tokio::test]
     async fn non_ascii_text_is_committed_by_the_keyboard_and_the_users_keyboard_returns() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let t = fake_keyboard_device(dir.path(), "echo 'Broadcast completed: result=1'");
+        let t = fake_keyboard_device(dir.path(), "");
         t.type_text("مرحبا 😀").await.expect("typed");
         let calls = std::fs::read_to_string(dir.path().join("calls")).expect("log");
         let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "مرحبا 😀");
@@ -1881,7 +1891,10 @@ esac"#,
     #[tokio::test]
     async fn a_failed_commit_still_returns_the_users_keyboard() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let t = fake_keyboard_device(dir.path(), "echo 'Error: device gone' >&2; exit 1");
+        let t = fake_keyboard_device(
+            dir.path(),
+            r#"*"am broadcast"*) echo 'Error: device gone' >&2; exit 1;;"#,
+        );
         assert!(t.type_text("مرحبا").await.is_err());
         let calls = std::fs::read_to_string(dir.path().join("calls")).expect("log");
         assert!(
@@ -1896,7 +1909,7 @@ esac"#,
     #[tokio::test]
     async fn long_ascii_falls_back_to_input_text_when_the_keyboard_fails() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let t = fake_keyboard_device(dir.path(), "exit 1");
+        let t = fake_keyboard_device(dir.path(), r#"*"pm list packages"*) exit 1;;"#);
         t.type_text("a long ascii sentence")
             .await
             .expect("typed per character");
@@ -1905,6 +1918,35 @@ esac"#,
             calls.contains("exec-out input text a%slong%sascii%ssentence"),
             "{calls}"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn text_committed_before_a_failed_restore_is_not_typed_again() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let t = fake_keyboard_device(dir.path(), r#"*"ime set com.example"*) exit 1;;"#);
+        assert!(t.type_text("a long ascii sentence").await.is_err());
+        let calls = std::fs::read_to_string(dir.path().join("calls")).expect("log");
+        assert!(!calls.contains("input text"), "{calls}");
+    }
+
+    /// API 30+ exits non-zero for a keyboard the package manager has not listed
+    /// yet, which happens straight after install.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn enabling_is_retried_after_an_unknown_input_method() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let once = dir.path().join("once");
+        let t = fake_keyboard_device(
+            dir.path(),
+            &format!(
+                r#"*"ime enable"*) if [ ! -f '{0}' ]; then touch '{0}'; echo "Unknown input method" >&2; exit 255; fi; echo "now enabled";;"#,
+                once.display()
+            ),
+        );
+        t.type_text("مرحبا").await.expect("typed after a retry");
+        let calls = std::fs::read_to_string(dir.path().join("calls")).expect("log");
+        assert_eq!(calls.matches("ime enable").count(), 2, "{calls}");
     }
 
     #[test]
@@ -1930,7 +1972,9 @@ esac"#,
     #[tokio::test]
     async fn a_hung_adb_is_cut_off_at_the_timeout() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let t = fake_adb(dir.path(), "sleep 30");
+        // exec: the timeout kills the sleep itself. A bare `sleep` outlived the
+        // test for 30s, holding any pipe it inherited from a parallel spawn.
+        let t = fake_adb(dir.path(), "exec sleep 30");
         let started = std::time::Instant::now();
         let err = t
             .run(&["shell", "true"], 1)
