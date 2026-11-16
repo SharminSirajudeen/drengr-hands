@@ -18,8 +18,14 @@ pub struct AdbTransport {
     recording: std::sync::Mutex<Option<(tokio::process::Child, String, String)>>,
 }
 
-/// `type_text` pastes text longer than this many characters.
-pub const PASTE_THRESHOLD: usize = 16;
+/// `type_text` sends text longer than this many characters, and any non-ASCII
+/// text, through the Drengr Keyboard in one commit.
+pub const IME_THRESHOLD: usize = 16;
+
+/// The Drengr Keyboard (`android-ime/`), embedded so first use installs it.
+const IME_APK: &[u8] = include_bytes!("../../android-ime/drengr-ime.apk");
+const IME_PACKAGE: &str = "dev.drengr.ime";
+const IME_ID: &str = "dev.drengr.ime/.DrengrIme";
 
 /// Override for the ADB binary path, set via McpConfig.adb_path.
 /// Uses OnceLock to avoid `unsafe { set_var }` on active tokio runtime.
@@ -297,6 +303,100 @@ impl AdbTransport {
     async fn shell(&self, cmd: &str) -> Result<String> {
         self.shell_with_timeout(cmd, 5).await
     }
+
+    /// Types `text` through the Drengr Keyboard, then gives the user back their
+    /// own keyboard on every path and leaves ours disabled. `Err`: the keyboard
+    /// could not be selected and nothing was typed. `Ok(outcome)`: a commit was
+    /// attempted, so the caller must not type the text again whatever happened.
+    async fn type_with_ime(&self, text: &str) -> Result<Result<()>> {
+        // `pm path` exits 1 for a missing package; `pm list` exits 0 and
+        // matches substrings, hence the exact line.
+        let listed = self
+            .shell(&format!("pm list packages {IME_PACKAGE}"))
+            .await?;
+        if !listed
+            .lines()
+            .any(|l| l.trim() == format!("package:{IME_PACKAGE}"))
+        {
+            let apk = crate::paths::ensure_drengr_dir()?.join("apks");
+            std::fs::create_dir_all(&apk)?;
+            let apk = apk.join("drengr-ime.apk");
+            std::fs::write(&apk, IME_APK)?;
+            let out = self
+                .run_text(&["install", "-r", &apk.to_string_lossy()], 120)
+                .await?;
+            if !out.contains("Success") {
+                anyhow::bail!("installing the Drengr Keyboard failed: {}", out.trim());
+            }
+        }
+        let previous = self
+            .shell("settings get secure default_input_method")
+            .await?;
+        let previous = previous.trim();
+        let selected = self.select_ime().await;
+        let typed = match &selected {
+            Ok(()) => self.commit_with_ime(text).await,
+            Err(_) => Ok(()),
+        };
+        let restore = if is_ime_id(previous) && previous != IME_ID {
+            format!("ime set {previous}; ime disable {IME_ID}")
+        } else {
+            format!("ime disable {IME_ID}")
+        };
+        let restored = self.shell(&restore).await;
+        selected?;
+        Ok(typed.and(restored.map(drop)))
+    }
+
+    async fn select_ime(&self) -> Result<()> {
+        // Straight after install the package manager may not list it yet: API
+        // 30+ exits non-zero ("Unknown input method" on stderr), so a failed
+        // call is retried too. API 26-28 print "now enabled" without "for user".
+        for _ in 0..20 {
+            let out = self.shell(&format!("ime enable {IME_ID}")).await;
+            if out.is_ok_and(|o| o.contains("now enabled") || o.contains("already enabled")) {
+                self.shell(&format!("ime set {IME_ID}")).await?;
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+        anyhow::bail!("the device did not enable the Drengr Keyboard")
+    }
+
+    async fn commit_with_ime(&self, text: &str) -> Result<()> {
+        // Base64 keeps the text away from the device shell. The keyboard answers
+        // result=1 only once it has committed into an editor, which takes a
+        // moment after the switch.
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, text);
+        for _ in 0..20 {
+            let out = self
+                .shell(&format!(
+                    "am broadcast -a dev.drengr.ime.COMMIT --es b64 {b64}"
+                ))
+                .await?;
+            if out.contains("result=1") {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        }
+        anyhow::bail!("the Drengr Keyboard found no focused text field")
+    }
+}
+
+fn clear_keys() -> String {
+    format!(
+        "input keyevent 123{}{}",
+        " 67".repeat(50),
+        " 112".repeat(50)
+    )
+}
+
+/// `package/class` as `settings get secure default_input_method` prints it.
+fn is_ime_id(s: &str) -> bool {
+    s.split_once('/').is_some_and(|(package, class)| {
+        crate::validate::is_valid_package_name(package)
+            && crate::validate::is_valid_package_name(class)
+    })
 }
 
 /// Parse ADB's `dumpsys window displays` to get the current activity.
@@ -627,20 +727,21 @@ impl DeviceTransport for AdbTransport {
     }
 
     async fn type_text(&self, text: &str) -> Result<()> {
-        // Fast `input text` injects per char, which garbles fragile fields (e.g.
-        // a Compose field with a cursor-reset bug) on longer strings. For those,
-        // paste from the clipboard instead — atomic, no per-key races. Short
-        // strings keep the fast path (reliable there, and needs no clipboard).
-        if text.chars().count() > PASTE_THRESHOLD
-            && self.pasteboard_set(text).await.is_ok()
-            && self.press_key(279).await.is_ok()
-        {
-            // 279 = KEYCODE_PASTE — pastes the clipboard into the focused field.
-            return Ok(());
+        // `input text` cannot type non-ASCII, and its per-character injection
+        // garbles fragile fields (a Compose cursor-reset bug) on longer strings.
+        // Both go through the Drengr Keyboard as one commit. ASCII falls back to
+        // `input text` on a device that refuses the keyboard.
+        if !text.is_ascii() || text.chars().count() > IME_THRESHOLD {
+            match self.type_with_ime(text).await {
+                Ok(outcome) => return outcome,
+                Err(e) if !text.is_ascii() => return Err(e),
+                Err(e) => {
+                    tracing::warn!("Drengr Keyboard unavailable, typing per character: {e:#}")
+                }
+            }
         }
-        // Short string, or no clipboard shell command / paste failed: fall
-        // through to per-char injection. adbd runs exec-out through `sh -c`,
-        // and the adb client single-quotes each argument for it (escape_arg).
+        // adbd runs exec-out through `sh -c`, and the adb client single-quotes
+        // each argument for it (escape_arg).
         for arg in input_text_args(text) {
             self.run(&["exec-out", "input", "text", &arg], 5).await?;
         }
@@ -732,9 +833,10 @@ impl DeviceTransport for AdbTransport {
     }
 
     async fn clear_focused_field(&self) -> Result<()> {
-        // Move cursor to end of field, then press delete 50 times
-        self.shell("input keyevent 123").await?; // KEYCODE_MOVE_END
-        self.shell("input keyevent 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67 67").await?;
+        // MOVE_END, then 50 DEL and 50 FORWARD_DEL. In a right-to-left field
+        // the cursor sits at the logical start, where only FORWARD_DEL deletes
+        // (Arabic stayed put on an API 36 emulator).
+        self.shell(&clear_keys()).await?;
         Ok(())
     }
 
@@ -1746,11 +1848,133 @@ mod tests {
         );
     }
 
+    /// A fake device whose keyboard is `com.example/.Kbd`; every adb call is
+    /// logged. `cases` are shell `case` arms tried before the defaults.
+    #[cfg(unix)]
+    fn fake_keyboard_device(dir: &std::path::Path, cases: &str) -> AdbTransport {
+        let log = dir.join("calls");
+        fake_adb(
+            dir,
+            &format!(
+                r#"echo "$*" >> '{}'
+case "$*" in
+  {cases}
+  *"pm list packages"*) echo package:dev.drengr.ime.extra; echo package:dev.drengr.ime;;
+  *"settings get"*) echo com.example/.Kbd;;
+  *"ime enable"*) echo "Input method dev.drengr.ime/.DrengrIme: now enabled";;
+  *"am broadcast"*) echo 'Broadcast completed: result=1';;
+esac"#,
+                log.display()
+            ),
+        )
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn non_ascii_text_is_committed_by_the_keyboard_and_the_users_keyboard_returns() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let t = fake_keyboard_device(dir.path(), "");
+        t.type_text("مرحبا 😀").await.expect("typed");
+        let calls = std::fs::read_to_string(dir.path().join("calls")).expect("log");
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, "مرحبا 😀");
+        assert!(calls.contains(&format!("--es b64 {b64}")), "{calls}");
+        assert!(!calls.contains("input text"), "{calls}");
+        assert!(
+            calls
+                .trim_end()
+                .ends_with("ime set com.example/.Kbd; ime disable dev.drengr.ime/.DrengrIme"),
+            "{calls}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_failed_commit_still_returns_the_users_keyboard() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let t = fake_keyboard_device(
+            dir.path(),
+            r#"*"am broadcast"*) echo 'Error: device gone' >&2; exit 1;;"#,
+        );
+        assert!(t.type_text("مرحبا").await.is_err());
+        let calls = std::fs::read_to_string(dir.path().join("calls")).expect("log");
+        assert!(
+            calls
+                .trim_end()
+                .ends_with("ime set com.example/.Kbd; ime disable dev.drengr.ime/.DrengrIme"),
+            "{calls}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn long_ascii_falls_back_to_input_text_when_the_keyboard_fails() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let t = fake_keyboard_device(dir.path(), r#"*"pm list packages"*) exit 1;;"#);
+        t.type_text("a long ascii sentence")
+            .await
+            .expect("typed per character");
+        let calls = std::fs::read_to_string(dir.path().join("calls")).expect("log");
+        assert!(
+            calls.contains("exec-out input text a%slong%sascii%ssentence"),
+            "{calls}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn text_committed_before_a_failed_restore_is_not_typed_again() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let t = fake_keyboard_device(dir.path(), r#"*"ime set com.example"*) exit 1;;"#);
+        assert!(t.type_text("a long ascii sentence").await.is_err());
+        let calls = std::fs::read_to_string(dir.path().join("calls")).expect("log");
+        assert!(!calls.contains("input text"), "{calls}");
+    }
+
+    /// API 30+ exits non-zero for a keyboard the package manager has not listed
+    /// yet, which happens straight after install.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn enabling_is_retried_after_an_unknown_input_method() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let once = dir.path().join("once");
+        let t = fake_keyboard_device(
+            dir.path(),
+            &format!(
+                r#"*"ime enable"*) if [ ! -f '{0}' ]; then touch '{0}'; echo "Unknown input method" >&2; exit 255; fi; echo "now enabled";;"#,
+                once.display()
+            ),
+        );
+        t.type_text("مرحبا").await.expect("typed after a retry");
+        let calls = std::fs::read_to_string(dir.path().join("calls")).expect("log");
+        assert_eq!(calls.matches("ime enable").count(), 2, "{calls}");
+    }
+
+    #[test]
+    fn clearing_deletes_on_both_sides_of_the_cursor() {
+        let keys = clear_keys();
+        assert!(keys.starts_with("input keyevent 123 67"), "{keys}");
+        assert_eq!(keys.matches(" 67").count(), 50);
+        assert_eq!(keys.matches(" 112").count(), 50);
+    }
+
+    #[test]
+    fn only_a_package_slash_class_is_restored_as_a_keyboard() {
+        assert!(is_ime_id(
+            "com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME"
+        ));
+        assert!(is_ime_id("dev.drengr.ime/.DrengrIme"));
+        assert!(!is_ime_id("null"));
+        assert!(!is_ime_id(""));
+        assert!(!is_ime_id("a/b; reboot"));
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn a_hung_adb_is_cut_off_at_the_timeout() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let t = fake_adb(dir.path(), "sleep 30");
+        // exec: the timeout kills the sleep itself. A bare `sleep` outlived the
+        // test for 30s, holding any pipe it inherited from a parallel spawn.
+        let t = fake_adb(dir.path(), "exec sleep 30");
         let started = std::time::Instant::now();
         let err = t
             .run(&["shell", "true"], 1)

@@ -22,3 +22,8 @@ sink: absent url printed	src/network/sink.rs	summary_omits_url_when_the_capture_
 query: sdk_connected always true	src/mcp/handlers/query.rs	query_network_empty_without_sdk_is_not_a_silent_success	s/"sdk_connected": sdk_connected,/"sdk_connected": true,/
 sdk: presence never cleared on disconnect	src/sdk/mod.rs	sdk_presence_clears_when_every_connection_guard_drops	s/self\.0\.fetch_sub\(1, Ordering::SeqCst\);//
 sink: request body preview not redacted	src/network/sink.rs	summary_shows_redacted_bodies_on_a_successful_in_app_call	s/obj\["request_preview"\] = json!\(crate::redact::redact\(cut\)\);/obj["request_preview"] = json!(cut);/
+adb: non-ASCII typed with input text	src/transport/adb.rs	non_ascii_text_is_committed_by_the_keyboard	s/if !text\.is_ascii\(\) \|\| text/if text/
+adb: clear never deletes forward	src/transport/adb.rs	clearing_deletes_on_both_sides_of_the_cursor	s/" 112"\.repeat\(50\)/"".repeat(50)/
+adb: keyboard not restored after a failed commit	src/transport/adb.rs	a_failed_commit_still_returns_the_users_keyboard	s/let restored = self\.shell\(&restore\)\.await;/let restored = if typed.is_ok() { self.shell(&restore).await } else { Ok(String::new()) };/
+adb: a failed restore retypes the text	src/transport/adb.rs	text_committed_before_a_failed_restore_is_not_typed_again	s/Ok\(typed\.and\(restored\.map\(drop\)\)\)/restored?;\n        Ok(typed)/
+adb: enabling needs API 30+ wording	src/transport/adb.rs	enabling_is_retried_after_an_unknown_input_method	s/o\.contains\("now enabled"\) \|\| o\.contains\("already enabled"\)/o.contains("enabled for user")/

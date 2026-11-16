@@ -20,7 +20,7 @@
 
 use std::time::Duration;
 
-use drengr_hands::transport::adb::{AdbTransport, PASTE_THRESHOLD};
+use drengr_hands::transport::adb::{AdbTransport, IME_THRESHOLD};
 use drengr_hands::transport::DeviceTransport;
 
 const SETTINGS_PKG: &str = "com.android.settings";
@@ -117,8 +117,8 @@ fn typing_cases() -> Vec<String> {
         .chain(['😀', '🚀'])
         .collect();
     let short =
-        proptest::collection::vec(proptest::sample::select(pool.clone()), 1..=PASTE_THRESHOLD);
-    let long = proptest::collection::vec(proptest::sample::select(pool), PASTE_THRESHOLD + 1..=40);
+        proptest::collection::vec(proptest::sample::select(pool.clone()), 1..=IME_THRESHOLD);
+    let long = proptest::collection::vec(proptest::sample::select(pool), IME_THRESHOLD + 1..=40);
     let text =
         prop_oneof![short, long].prop_map(|v| v.into_iter().collect::<String>().trim().to_string());
     let mut runner = TestRunner::new(Config {
@@ -168,6 +168,14 @@ fn describe(tree: &[drengr_hands::screen::ui_element::UiElement]) -> String {
         .join("\n")
 }
 
+fn device_shell(cmd: &str) -> anyhow::Result<String> {
+    let out = std::process::Command::new(drengr_hands::transport::adb::resolve_adb())
+        .args(["-s", &device_id(), "shell", cmd])
+        .output()?;
+    anyhow::ensure!(out.status.success(), "adb shell {cmd} failed: {out:?}");
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
 /// Text of the focused text field, or an error carrying the whole tree.
 async fn focused_field_text(t: &AdbTransport) -> anyhow::Result<String> {
     let tree = t.ui_tree().await?;
@@ -207,7 +215,7 @@ async fn open_settings_search(t: &AdbTransport) -> anyhow::Result<()> {
 
 /// Types each case through `type_text` into the Settings search box and reads
 /// it back from the UI tree. Runs every case, then fails once with all mismatches.
-/// Non-ASCII cases are expected to fail (known defect) and fail the test if they pass.
+/// The user's keyboard must be the default again afterwards, with ours disabled.
 #[tokio::test]
 async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
     let _device = DEVICE.lock().await;
@@ -226,60 +234,57 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
     let empty = focused_field_text(&t).await?;
     eprintln!("[typing] empty field reads {empty:?}");
 
+    let keyboard_before = device_shell("settings get secure default_input_method")?;
     let mut tally: std::collections::BTreeMap<(&str, &str), (u32, u32)> = Default::default();
     let mut failures = Vec::new();
     let mut reopened = 0;
     for (i, text) in typing_cases().iter().enumerate() {
-        let path = if text.chars().count() > PASTE_THRESHOLD {
-            "paste"
+        let path = if !text.is_ascii() || text.chars().count() > IME_THRESHOLD {
+            "ime"
         } else {
             "input"
         };
         // Settings search closes by itself on CI, between cases and during a
         // clear (runs 43758680600, 43806372082); reopen it so one lost screen
         // does not hide the remaining cases.
-        t.clear_focused_field().await?;
-        let before = match focused_field_text(&t).await {
-            Ok(text) => text,
-            Err(_) => {
-                reopened += 1;
-                eprintln!("[typing] search field lost before #{i:02}; reopening");
-                open_settings_search(&t).await?;
-                t.clear_focused_field().await?;
-                focused_field_text(&t).await?
+        // It also closed between typing and reading (run 43815597674), which
+        // says nothing about the typing, so that one case is retried once.
+        let mut outcome = Err(String::new());
+        for _attempt in 0..2 {
+            t.clear_focused_field().await?;
+            let before = match focused_field_text(&t).await {
+                Ok(text) => text,
+                Err(_) => {
+                    reopened += 1;
+                    eprintln!("[typing] search field lost before #{i:02}; reopening");
+                    open_settings_search(&t).await?;
+                    t.clear_focused_field().await?;
+                    focused_field_text(&t).await?
+                }
+            };
+            if before != empty {
+                outcome = Err(format!("field not cleared, reads {before:?}"));
+                break;
             }
-        };
-        let outcome = if before != empty {
-            Err(format!("field not cleared, reads {before:?}"))
-        } else {
-            match t.type_text(text).await {
-                Err(e) => Err(format!("type_text error: {e}")),
-                Ok(()) => {
-                    tokio::time::sleep(Duration::from_millis(800)).await;
-                    let got = focused_field_text(&t).await?;
-                    if got == *text {
-                        Ok(())
-                    } else {
-                        Err(format!("got {got:?}"))
-                    }
+            if let Err(e) = t.type_text(text).await {
+                outcome = Err(format!("type_text error: {e}"));
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            match focused_field_text(&t).await {
+                Ok(got) if got == *text => outcome = Ok(()),
+                Ok(got) => outcome = Err(format!("got {got:?}")),
+                Err(e) => {
+                    outcome = Err(format!("field lost after typing: {e}"));
+                    continue;
                 }
             }
-        };
+            break;
+        }
         let entry = tally.entry((path, char_class(text))).or_default();
         entry.1 += 1;
-        // Known defect: `input text` cannot type non-ASCII. Expected to fail;
-        // a pass means it was fixed and this case must become a plain assert.
-        let known_defect = !text.is_ascii();
         match &outcome {
-            Ok(()) => {
-                entry.0 += 1;
-                if known_defect {
-                    failures.push(format!(
-                        "#{i:02} {path} sent {text:?}: non-ASCII typed correctly; promote it from expected-fail"
-                    ));
-                }
-            }
-            Err(_) if known_defect => {}
+            Ok(()) => entry.0 += 1,
             Err(why) => {
                 if let Ok(raw) = t.raw_ui_tree().await {
                     let node = raw
@@ -308,6 +313,15 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
     for _ in 0..2 {
         t.press_key(drengr_hands::transport::keycode::BACK).await?;
     }
+    assert_eq!(
+        device_shell("settings get secure default_input_method")?,
+        keyboard_before,
+        "the user's keyboard was not restored"
+    );
+    assert!(
+        !device_shell("ime list -s")?.contains("dev.drengr.ime"),
+        "the Drengr Keyboard was left enabled"
+    );
     assert!(
         failures.is_empty(),
         "{} typed strings arrived changed:\n{}",
