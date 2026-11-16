@@ -235,15 +235,20 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
         } else {
             "input"
         };
-        // Settings search closed by itself once on CI, between cases; reopen
-        // it so one lost screen does not hide the remaining cases.
-        if focused_field_text(&t).await.is_err() {
-            reopened += 1;
-            eprintln!("[typing] search field lost before #{i:02}; reopening");
-            open_settings_search(&t).await?;
-        }
+        // Settings search closes by itself on CI, between cases and during a
+        // clear (runs 43758680600, 43806372082); reopen it so one lost screen
+        // does not hide the remaining cases.
         t.clear_focused_field().await?;
-        let before = focused_field_text(&t).await?;
+        let before = match focused_field_text(&t).await {
+            Ok(text) => text,
+            Err(_) => {
+                reopened += 1;
+                eprintln!("[typing] search field lost before #{i:02}; reopening");
+                open_settings_search(&t).await?;
+                t.clear_focused_field().await?;
+                focused_field_text(&t).await?
+            }
+        };
         let outcome = if before != empty {
             Err(format!("field not cleared, reads {before:?}"))
         } else {
