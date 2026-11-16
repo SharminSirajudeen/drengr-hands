@@ -247,33 +247,40 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
         // Settings search closes by itself on CI, between cases and during a
         // clear (runs 43758680600, 43806372082); reopen it so one lost screen
         // does not hide the remaining cases.
-        t.clear_focused_field().await?;
-        let before = match focused_field_text(&t).await {
-            Ok(text) => text,
-            Err(_) => {
-                reopened += 1;
-                eprintln!("[typing] search field lost before #{i:02}; reopening");
-                open_settings_search(&t).await?;
-                t.clear_focused_field().await?;
-                focused_field_text(&t).await?
+        // It also closed between typing and reading (run 43815597674), which
+        // says nothing about the typing, so that one case is retried once.
+        let mut outcome = Err(String::new());
+        for _attempt in 0..2 {
+            t.clear_focused_field().await?;
+            let before = match focused_field_text(&t).await {
+                Ok(text) => text,
+                Err(_) => {
+                    reopened += 1;
+                    eprintln!("[typing] search field lost before #{i:02}; reopening");
+                    open_settings_search(&t).await?;
+                    t.clear_focused_field().await?;
+                    focused_field_text(&t).await?
+                }
+            };
+            if before != empty {
+                outcome = Err(format!("field not cleared, reads {before:?}"));
+                break;
             }
-        };
-        let outcome = if before != empty {
-            Err(format!("field not cleared, reads {before:?}"))
-        } else {
-            match t.type_text(text).await {
-                Err(e) => Err(format!("type_text error: {e}")),
-                Ok(()) => {
-                    tokio::time::sleep(Duration::from_millis(800)).await;
-                    // A lost field fails this case only; the next one reopens search.
-                    match focused_field_text(&t).await {
-                        Ok(got) if got == *text => Ok(()),
-                        Ok(got) => Err(format!("got {got:?}")),
-                        Err(e) => Err(format!("field lost after typing: {e}")),
-                    }
+            if let Err(e) = t.type_text(text).await {
+                outcome = Err(format!("type_text error: {e}"));
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(800)).await;
+            match focused_field_text(&t).await {
+                Ok(got) if got == *text => outcome = Ok(()),
+                Ok(got) => outcome = Err(format!("got {got:?}")),
+                Err(e) => {
+                    outcome = Err(format!("field lost after typing: {e}"));
+                    continue;
                 }
             }
-        };
+            break;
+        }
         let entry = tally.entry((path, char_class(text))).or_default();
         entry.1 += 1;
         match &outcome {
