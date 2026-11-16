@@ -64,5 +64,9 @@ The device test found one more bug: `clear_focused_field` sent MOVE_END then DEL
 | Run | Device | ASCII | Arabic | Emoji | Arabic + emoji |
 |---|---|---|---|---|---|
 | local, fresh install | API 36 emulator (arm64) | 16/16 | 16/16 | 5/5 | 13/13 |
+| local, fresh install | API 34 emulator (arm64) | 16/16 | 16/16 | 5/5 | 13/13 |
+| local, fresh install | API 30 emulator (arm64) | 16/16 | 16/16 | 5/5 | 13/13 |
+
+API 26-29 were not run. On API 30, `ime enable` straight after install printed "Unknown input method" with exit 0, then "now enabled" on the retry.
 
 The run before these two (43758034983) also failed the existing smoke test on its first launcher `ui_tree`. It passed on the next two runs, and the typing test now reopens Settings search if it closes (0 reopens in the after run).
