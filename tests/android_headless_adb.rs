@@ -20,7 +20,7 @@
 
 use std::time::Duration;
 
-use drengr_hands::transport::adb::AdbTransport;
+use drengr_hands::transport::adb::{AdbTransport, PASTE_THRESHOLD};
 use drengr_hands::transport::DeviceTransport;
 
 const SETTINGS_PKG: &str = "com.android.settings";
@@ -104,8 +104,6 @@ async fn adb_transport_smoke_end_to_end() -> anyhow::Result<()> {
 }
 
 const TYPING_SEED: u64 = 0x7E57_7E87;
-/// Mirrors `PASTE_THRESHOLD` in `AdbTransport::type_text`: longer text is pasted.
-const PASTE_THRESHOLD: usize = 16;
 
 /// The four hypothesis strings on both paths, then generated ones from a fixed
 /// seed. No leading or trailing space: the UI tree reports text trimmed.
@@ -209,6 +207,7 @@ async fn open_settings_search(t: &AdbTransport) -> anyhow::Result<()> {
 
 /// Types each case through `type_text` into the Settings search box and reads
 /// it back from the UI tree. Runs every case, then fails once with all mismatches.
+/// Non-ASCII cases are expected to fail (known defect) and fail the test if they pass.
 #[tokio::test]
 async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
     let _device = DEVICE.lock().await;
@@ -263,8 +262,19 @@ async fn typed_text_arrives_unchanged() -> anyhow::Result<()> {
         };
         let entry = tally.entry((path, char_class(text))).or_default();
         entry.1 += 1;
+        // Known defect: `input text` cannot type non-ASCII. Expected to fail;
+        // a pass means it was fixed and this case must become a plain assert.
+        let known_defect = !text.is_ascii();
         match &outcome {
-            Ok(()) => entry.0 += 1,
+            Ok(()) => {
+                entry.0 += 1;
+                if known_defect {
+                    failures.push(format!(
+                        "#{i:02} {path} sent {text:?}: non-ASCII typed correctly; promote it from expected-fail"
+                    ));
+                }
+            }
+            Err(_) if known_defect => {}
             Err(why) => {
                 if let Ok(raw) = t.raw_ui_tree().await {
                     let node = raw

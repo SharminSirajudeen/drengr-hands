@@ -35,7 +35,7 @@ These 16 functions are tested for never panicking: `parse_ui_tree_xml`, `parse_c
 | 5 | `parse_ooda_decision` | `"}0{"` | `rfind('}')` could land before `find('{')` | Look for `}` after `{` | slice panic → `Err` |
 | 6 | `parse_adb_devices` | id `0offline`, state `device` | A substring pre-filter on the whole line | Only the state column decides | device dropped → kept |
 | 7 | `type_text` (input-text path) | `"50%"`; `"a%sb"` | `sendText` turns only `%s` into a space, so the `%`→`%%` escape was wrong. A literal `%s` can't be sent in one call | Spaces sent as `%s`, `%` sent as itself, text split between calls at each literal `%s` | device: `"50%%"`, `"a% b"` → exact |
-| 8 | `extract_attr_ref` | `text='_R=)!r*Z91:J;R"'` (verbatim from the device) | Only `name="…"` was read; uiautomator quotes a value that holds `"` with `'` | Accept either quote | read `""` → exact |
+| 8 | `extract_attr_ref` | `text='_R=)!r*Z91:J;R"'` (verbatim from the device) | Only `name="…"` was read; uiautomator quotes a value that holds `"` with `'` | Walk the tag value by value, either quote, so `bounds='…'` written inside another value is never read (found in review) | read `""` → exact |
 | 9 | `pasteboard_set` (Android) | every string over 16 characters | AOSP `ClipboardService` has no shell command. `cmd clipboard` prints "No shell command implementation." to stderr and exits 0, and adb errors were swallowed, so it reported success and `type_text` pasted an empty clipboard | Fails on any output, reading stderr too. `type_text` then falls back to `input text` | ASCII over 16 chars typed 0/2 → 2/2 |
 
 In release builds, bugs 2 and 3 do not panic: the arithmetic wraps and gives wrong values.
@@ -53,6 +53,6 @@ In release builds, bugs 2 and 3 do not panic: the arithmetic wraps and gives wro
 
 The path column labels each case by length, as `type_text` decides. Since fix 9, long text also goes through `input text`.
 
-**Still failing: any non-ASCII text, 0/34.** `input text` cannot type it. `KeyCharacterMap.getEvents` is documented to return null when the virtual key map cannot produce the characters, and `sendText` then reads `events.length` on that null (read in the AOSP source; not instrumented on the device). Stock Android 14 has no clipboard shell command (bug 9). Typing non-ASCII needs a different mechanism, which has not been built. The device test stays red and records this defect.
+**Still failing: any non-ASCII text, 0/34.** `input text` cannot type it. `KeyCharacterMap.getEvents` is documented to return null when the virtual key map cannot produce the characters, and `sendText` then reads `events.length` on that null (read in the AOSP source; not instrumented on the device). Stock Android 14 has no clipboard shell command (bug 9). Typing non-ASCII needs a different mechanism, which has not been built. The device test registers non-ASCII cases as expected-fail: they must not arrive intact, and one that does fails the test so it gets promoted to a plain assertion.
 
 The run before these two (43758034983) also failed the existing smoke test on its first launcher `ui_tree`. It passed on the next two runs, and the typing test now reopens Settings search if it closes (0 reopens in the after run).

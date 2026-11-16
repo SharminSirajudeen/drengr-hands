@@ -251,12 +251,13 @@ mod round_trip {
         #![proptest_config(config(2000))]
 
         /// XML lets a value be quoted with ' or ", and uiautomator picks ' for
-        /// a value that holds a " (seen on an API 34 emulator).
+        /// a value that holds a " (seen on an API 34 emulator). An earlier
+        /// value spelling `text='x'` in the other quote must not be read.
         #[test]
         fn extract_attr_ref_reads_either_quote(v in "[^'\"]{0,12}", single: bool) {
             let (q, other) = if single { ('\'', '"') } else { ('"', '\'') };
             let v = format!("{v}{other}");
-            let tag = format!("<node text={q}{v}{q} bounds=\"[0,0][1,1]\" />");
+            let tag = format!("<node hint={q} text={other}x{other}{q} text={q}{v}{q} bounds=\"[0,0][1,1]\" />");
             prop_assert_eq!(crate::transport::extract_attr_ref(&tag, "text"), Some(v.as_str()));
         }
 

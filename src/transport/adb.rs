@@ -20,6 +20,9 @@ pub struct AdbTransport {
 
 /// Override for the ADB binary path, set via McpConfig.adb_path.
 /// Uses OnceLock to avoid `unsafe { set_var }` on active tokio runtime.
+/// `type_text` pastes text longer than this many characters.
+pub const PASTE_THRESHOLD: usize = 16;
+
 static ADB_PATH_OVERRIDE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Set a custom ADB path override (called once from McpConfig before transport creation).
@@ -628,7 +631,6 @@ impl DeviceTransport for AdbTransport {
         // a Compose field with a cursor-reset bug) on longer strings. For those,
         // paste from the clipboard instead — atomic, no per-key races. Short
         // strings keep the fast path (reliable there, and needs no clipboard).
-        const PASTE_THRESHOLD: usize = 16;
         if text.chars().count() > PASTE_THRESHOLD
             && self.pasteboard_set(text).await.is_ok()
             && self.press_key(279).await.is_ok()
