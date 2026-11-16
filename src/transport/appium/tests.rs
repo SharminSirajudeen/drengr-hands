@@ -306,7 +306,10 @@ async fn http_logs_are_parsed_from_appium_log_entries() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].status, Some(200));
     assert_eq!(events[0].method.as_deref(), Some("GET"));
-    assert_eq!(events[0].url, "https://api.example.com/v1/me");
+    assert_eq!(
+        events[0].url.as_deref(),
+        Some("https://api.example.com/v1/me")
+    );
 }
 
 #[tokio::test]
