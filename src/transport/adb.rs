@@ -761,8 +761,11 @@ impl DeviceTransport for AdbTransport {
         {
             anyhow::bail!("Invalid package name: {}", package);
         }
+        // monkey's default event mix includes 2% system keys, and on a device
+        // without them it aborts ("SYS_KEYS has no physical keys", exit 251)
+        // before launching anything. Seen on an API 34 emulator with no keys.
         self.shell(&format!(
-            "monkey -p {} -c android.intent.category.LAUNCHER 1 2>/dev/null",
+            "monkey -p {} -c android.intent.category.LAUNCHER --pct-syskeys 0 1 2>/dev/null",
             package
         ))
         .await?;
@@ -1947,6 +1950,24 @@ esac"#,
         t.type_text("مرحبا").await.expect("typed after a retry");
         let calls = std::fs::read_to_string(dir.path().join("calls")).expect("log");
         assert_eq!(calls.matches("ime enable").count(), 2, "{calls}");
+    }
+
+    /// monkey on a device with no system keys, as an API 34 emulator without
+    /// hardware keys answered.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_app_launches_on_a_device_without_system_keys() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let t = fake_adb(
+            dir.path(),
+            r#"case "$*" in
+  *"--pct-syskeys 0"*) echo "Events injected: 1";;
+  *monkey*) echo "** SYS_KEYS has no physical keys but with factor 2.0%." >&2; exit 251;;
+esac"#,
+        );
+        t.launch_app("com.android.settings")
+            .await
+            .expect("launched");
     }
 
     #[test]

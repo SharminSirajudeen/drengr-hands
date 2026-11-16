@@ -27,3 +27,4 @@ adb: clear never deletes forward	src/transport/adb.rs	clearing_deletes_on_both_s
 adb: keyboard not restored after a failed commit	src/transport/adb.rs	a_failed_commit_still_returns_the_users_keyboard	s/let restored = self\.shell\(&restore\)\.await;/let restored = if typed.is_ok() { self.shell(&restore).await } else { Ok(String::new()) };/
 adb: a failed restore retypes the text	src/transport/adb.rs	text_committed_before_a_failed_restore_is_not_typed_again	s/Ok\(typed\.and\(restored\.map\(drop\)\)\)/restored?;\n        Ok(typed)/
 adb: enabling needs API 30+ wording	src/transport/adb.rs	enabling_is_retried_after_an_unknown_input_method	s/o\.contains\("now enabled"\) \|\| o\.contains\("already enabled"\)/o.contains("enabled for user")/
+adb: launch needs system keys	src/transport/adb.rs	an_app_launches_on_a_device_without_system_keys	s/ --pct-syskeys 0 1 2>/ 1 2>/
