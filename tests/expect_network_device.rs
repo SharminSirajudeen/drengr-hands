@@ -66,7 +66,7 @@ async fn expectations_resolve_against_real_device_traffic() -> anyhow::Result<()
         println!(
             "  {} {} -> {} ({}ms)",
             e.method.as_deref().unwrap_or("<method not captured>"),
-            e.url,
+            e.url.as_deref().unwrap_or("<url not captured>"),
             e.status
                 .map_or("<status not captured>".to_string(), |s| s.to_string()),
             e.duration_ms.map_or("?".to_string(), |d| d.to_string())

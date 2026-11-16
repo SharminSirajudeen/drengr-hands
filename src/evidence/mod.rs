@@ -171,7 +171,8 @@ pub fn task_folder(index: usize, name: &str) -> String {
 pub struct CallRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,
-    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -184,7 +185,7 @@ impl CallRecord {
         let e = &entry.event;
         Self {
             method: e.method.clone(),
-            url: scrub_url(&e.url),
+            url: e.url.as_deref().map(scrub_url),
             status: e.status,
             duration_ms: e.duration_ms,
             source: entry.source,
@@ -379,7 +380,7 @@ pub(crate) fn sample_call(url: &str, status: Option<u16>) -> SinkEntry {
         source: NetworkSource::Logcat,
         truncated: crate::network::sink::BodyTruncation::None,
         event: crate::network::events::NetworkEvent {
-            url: url.into(),
+            url: Some(url.into()),
             method: Some("POST".into()),
             status,
             duration_ms: Some(12),
