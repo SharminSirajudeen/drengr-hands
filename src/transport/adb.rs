@@ -18,11 +18,11 @@ pub struct AdbTransport {
     recording: std::sync::Mutex<Option<(tokio::process::Child, String, String)>>,
 }
 
-/// Override for the ADB binary path, set via McpConfig.adb_path.
-/// Uses OnceLock to avoid `unsafe { set_var }` on active tokio runtime.
 /// `type_text` pastes text longer than this many characters.
 pub const PASTE_THRESHOLD: usize = 16;
 
+/// Override for the ADB binary path, set via McpConfig.adb_path.
+/// Uses OnceLock to avoid `unsafe { set_var }` on active tokio runtime.
 static ADB_PATH_OVERRIDE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Set a custom ADB path override (called once from McpConfig before transport creation).
