@@ -22,7 +22,7 @@ Every property runs with a fixed seed (`src/properties.rs`), so a failure reprod
 
 These 16 functions are tested for never panicking: `parse_ui_tree_xml`, `parse_current_activity`, `parse_screen_size`, `parse_pm_list_packages`, `parse_logcat_lines`, `parse_adb_devices`, `parse_bounds`, `extract_attr_ref`, `parse_simctl_devices`, `parse_os_log_lines`, `parse_listapps_output`, `parse_page_source`, `parse_okhttp_logcat`, `parse_ios_network_log`, `parse_ooda_decision` and `sanitize_device_text`. The generator mixes arbitrary Unicode with each parser's own markers and with random `i32` bounds and frames.
 
-**Run time** (25 properties, Apple M5 Max, debug build): 0.38 s in parallel and 2.01 s one at a time. The whole lib suite (709 tests) runs in 5.55 s; it ran 674 tests in 5.46 s before. `[profile.dev.package.proptest] opt-level = 3` cut each 2000-case never-panic property from 0.89 s to 0.07 s.
+**Run time** (25 properties, Apple M5 Max, debug build): 0.38 s in parallel and 2.01 s one at a time. The whole lib suite runs in 5.55 s; it ran in 5.46 s before. `[profile.dev.package.proptest] opt-level = 3` cut each 2000-case never-panic property from 0.89 s to 0.07 s.
 
 ## Bugs
 
