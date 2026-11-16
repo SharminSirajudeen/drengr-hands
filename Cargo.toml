@@ -118,6 +118,8 @@ sha2 = "0.10"
 tempfile = "3.8"
 # HTTP mocking for driver client unit tests against a mock runner.
 wiremock = "0.6"
+# Property-based tests for the pure parsers, matchers and validators.
+proptest = "1"
 
 [profile.release]
 lto = "fat"
@@ -130,3 +132,9 @@ debug-assertions = false
 [profile.release.package."*"]
 opt-level = "z"
 strip = "symbols"
+
+# Property-test generation runs 6x faster optimised (0.44s -> 0.07s per
+# 2000-case property); our own code stays at dev opt-level so overflow
+# checks still fire.
+[profile.dev.package.proptest]
+opt-level = 3

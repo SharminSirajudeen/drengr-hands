@@ -31,6 +31,8 @@ pub mod network;
 pub mod onboard;
 pub mod ooda;
 pub mod paths;
+#[cfg(test)]
+mod properties;
 pub mod redact;
 pub mod run_outcome;
 pub mod runner;

@@ -43,7 +43,7 @@ pub(super) fn parse_page_source(xml: &str) -> Vec<UiElement> {
                 let y = extract_attr(trimmed, "y")?.parse::<i32>().ok()?;
                 let w = extract_attr(trimmed, "width")?.parse::<i32>().ok()?;
                 let h = extract_attr(trimmed, "height")?.parse::<i32>().ok()?;
-                Some(Bounds::new(x, y, x + w, y + h))
+                Some(Bounds::new(x, y, x.saturating_add(w), y.saturating_add(h)))
             })
             .unwrap_or_default();
 

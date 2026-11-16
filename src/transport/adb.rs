@@ -20,6 +20,9 @@ pub struct AdbTransport {
 
 /// Override for the ADB binary path, set via McpConfig.adb_path.
 /// Uses OnceLock to avoid `unsafe { set_var }` on active tokio runtime.
+/// `type_text` pastes text longer than this many characters.
+pub const PASTE_THRESHOLD: usize = 16;
+
 static ADB_PATH_OVERRIDE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Set a custom ADB path override (called once from McpConfig before transport creation).
@@ -628,7 +631,6 @@ impl DeviceTransport for AdbTransport {
         // a Compose field with a cursor-reset bug) on longer strings. For those,
         // paste from the clipboard instead — atomic, no per-key races. Short
         // strings keep the fast path (reliable there, and needs no clipboard).
-        const PASTE_THRESHOLD: usize = 16;
         if text.chars().count() > PASTE_THRESHOLD
             && self.pasteboard_set(text).await.is_ok()
             && self.press_key(279).await.is_ok()
@@ -636,12 +638,12 @@ impl DeviceTransport for AdbTransport {
             // 279 = KEYCODE_PASTE — pastes the clipboard into the focused field.
             return Ok(());
         }
-        // Short string, or clipboard unavailable (API < 29) / paste failed: fall
-        // through to per-char injection so typing always works.
-        // exec-out bypasses the device shell entirely — no metacharacter interp.
-        let escaped = escape_adb_text(text);
-        self.run(&["exec-out", "input", "text", &escaped], 5)
-            .await?;
+        // Short string, or no clipboard shell command / paste failed: fall
+        // through to per-char injection. adbd runs exec-out through `sh -c`,
+        // and the adb client single-quotes each argument for it (escape_arg).
+        for arg in input_text_args(text) {
+            self.run(&["exec-out", "input", "text", &arg], 5).await?;
+        }
         Ok(())
     }
 
@@ -1145,14 +1147,18 @@ impl DeviceTransport for AdbTransport {
     }
 
     async fn pasteboard_set(&self, text: &str) -> Result<()> {
-        // API 29+ has `cmd clipboard set-text`
+        // AOSP's ClipboardService has no shell command (android14-release and
+        // main), so `cmd clipboard` prints "No shell command implementation."
+        // to stderr and exits 0. Any output therefore means nothing was set.
         let safe_text = text.replace('\'', "'\\''");
         let out = self
-            .shell(&format!("cmd clipboard set-text '{}'", safe_text))
-            .await
-            .unwrap_or_default();
-        if out.contains("Unknown command") {
-            anyhow::bail!("pasteboard_set requires API 29+ or a companion APK")
+            .shell(&format!("cmd clipboard set-text '{}' 2>&1", safe_text))
+            .await?;
+        if !out.trim().is_empty() {
+            anyhow::bail!(
+                "pasteboard_set: the device did not set the clipboard: {}",
+                out.trim()
+            )
         }
         Ok(())
     }
@@ -1249,10 +1255,11 @@ pub fn parse_logcat_lines(output: &str) -> Vec<crate::transport::LogEntry> {
         }
         // Try to parse structured logcat format
         // Example: "03-18 10:30:45.123  1234  5678 I MyTag   : Hello world"
-        if trimmed.len() > 33 {
-            let timestamp = &trimmed[..18];
+        // The 18-byte timestamp is ASCII; a line whose byte 18 splits a
+        // character is not in this format and goes to the fallback.
+        if let Some((timestamp, rest)) = trimmed.split_at_checked(18).filter(|_| trimmed.len() > 33)
+        {
             // Find the level character (single letter after PID/TID)
-            let rest = &trimmed[18..];
             if let Some(level_pos) = rest.find(['V', 'D', 'I', 'W', 'E', 'F']) {
                 let level = &rest[level_pos..level_pos + 1];
                 let after_level = rest[level_pos + 1..].trim_start();
@@ -1280,23 +1287,101 @@ pub fn parse_logcat_lines(output: &str) -> Vec<crate::transport::LogEntry> {
     entries
 }
 
-/// ADB `input text` escaping. Since we use exec-out (no device shell), only ADB-level
-/// special sequences need escaping: space → %s, percent → %%.
-fn escape_adb_text(text: &str) -> String {
-    let mut out = String::with_capacity(text.len() + 16);
-    for c in text.chars() {
-        match c {
-            ' ' => out.push_str("%s"),
-            '%' => out.push_str("%%"),
-            c => out.push(c),
-        }
-    }
-    out
+/// Arguments for successive `input text` calls that together type `text`.
+/// `input text` rewrites "%s" to a space and nothing else (AOSP
+/// InputShellCommand.sendText), so a space goes as "%s", '%' goes as itself,
+/// and a literal "%s", which one call cannot express, is split between calls.
+fn input_text_args(text: &str) -> Vec<String> {
+    let parts: Vec<&str> = text.split("%s").collect();
+    let last = parts.len() - 1;
+    parts
+        .iter()
+        .enumerate()
+        .map(|(i, part)| {
+            let s = if i > 0 { "s" } else { "" };
+            let pct = if i < last { "%" } else { "" };
+            format!("{s}{part}{pct}").replace(' ', "%s")
+        })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AOSP `InputShellCommand.sendText`, line for line: the only rewrite it
+    /// makes is "%s" -> " " (checked identical on android14-release and main).
+    fn send_text_model(arg: &str) -> String {
+        let mut buff: Vec<char> = arg.chars().collect();
+        let (mut escape, mut i) = (false, 0);
+        while i < buff.len() {
+            if escape {
+                escape = false;
+                if buff[i] == 's' {
+                    buff[i] = ' ';
+                    i -= 1;
+                    buff.remove(i);
+                }
+            }
+            if buff[i] == '%' {
+                escape = true;
+            }
+            i += 1;
+        }
+        buff.into_iter().collect()
+    }
+
+    #[test]
+    fn a_single_quoted_text_attribute_is_read() {
+        // Verbatim from Android E2E run 43758680600 (API 34), case #36.
+        let node = r#"<node index="0" text='_R=)!r*Z91:J;R"' class="android.widget.EditText" focused="true" bounds="[48,32][264,80]" />"#;
+        assert_eq!(
+            parse_ui_tree_xml(node).unwrap()[0].text,
+            r#"_R=)!r*Z91:J;R""#
+        );
+    }
+
+    #[test]
+    fn the_send_text_model_reproduces_what_the_device_typed() {
+        // Android E2E run 43758034983, API 34, the old "%" -> "%%" escaping.
+        assert_eq!(send_text_model("50%%"), "50%%");
+        assert_eq!(send_text_model("a%%sb"), "a% b");
+    }
+
+    #[test]
+    fn percent_and_a_literal_percent_s_type_as_written() {
+        assert_eq!(input_text_args("50%"), ["50%"]);
+        assert_eq!(input_text_args("a%sb"), ["a%", "sb"]);
+        assert_eq!(input_text_args("a b"), ["a%sb"]);
+    }
+
+    proptest::proptest! {
+        #![proptest_config(crate::properties::config(2000))]
+        #[test]
+        fn input_text_types_exactly_the_text(text in "[a%s ]{0,12}") {
+            let typed: String = input_text_args(&text).iter().map(|a| send_text_model(a)).collect();
+            proptest::prop_assert_eq!(typed, text);
+        }
+    }
+
+    #[test]
+    fn a_logcat_line_split_mid_character_at_byte_18_falls_back_to_raw() {
+        // 'ೝ' is 3 bytes, at 16..19, so byte 18 is inside it.
+        let line = format!("{}ೝ{}", "a".repeat(16), "b".repeat(20));
+        let entries = parse_logcat_lines(&line);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            (entries[0].level.as_str(), entries[0].message.as_str()),
+            ("?", line.as_str())
+        );
+    }
+
+    #[test]
+    fn a_node_taller_than_i32_saturates_instead_of_overflowing() {
+        let els = parse_ui_tree_xml(r#"<node bounds="[0,-1023765252][1,1123718396]" />"#).unwrap();
+        assert_eq!(els[0].bounds.height(), i32::MAX);
+        assert!(els[0].visible);
+    }
 
     #[test]
     fn test_parse_screen_size_physical() {

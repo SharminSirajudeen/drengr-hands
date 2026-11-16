@@ -315,8 +315,8 @@ pub(crate) fn extract_json(response: &str) -> &str {
 
     // Try to find { ... } directly
     if let Some(start) = trimmed.find('{') {
-        if let Some(end) = trimmed.rfind('}') {
-            return &trimmed[start..=end];
+        if let Some(end) = trimmed[start..].rfind('}') {
+            return &trimmed[start..=start + end];
         }
     }
 
@@ -326,6 +326,11 @@ pub(crate) fn extract_json(response: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_closing_brace_before_the_opening_one_is_an_error_not_a_panic() {
+        assert!(parse_ooda_decision("}0{").is_err());
+    }
 
     #[test]
     fn test_parse_tap_decision() {

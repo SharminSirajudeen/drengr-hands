@@ -752,3 +752,18 @@ async fn every_capability_gated_refusal_names_the_capability() {
     let text = format!("{:#}", android.list_installed_apps().await.unwrap_err());
     assert!(text.contains("uiautomator2:adb_shell"), "{text}");
 }
+
+#[test]
+fn parse_page_source_never_panics() {
+    crate::properties::never_panics(|s| {
+        let _ = super::source::parse_page_source(s);
+    });
+}
+
+#[test]
+fn an_ios_frame_past_i32_saturates_instead_of_overflowing() {
+    let els = super::source::parse_page_source(
+        r#"<e class="c" x="0" y="1405198982" width="0" height="742284666"/>"#,
+    );
+    assert_eq!(els[0].bounds.bottom, i32::MAX);
+}

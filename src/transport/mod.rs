@@ -494,23 +494,21 @@ pub fn parse_bounds(s: &str) -> Option<Bounds> {
 
 /// Extract an XML attribute value as a borrowed slice (zero allocation).
 /// Use for boolean checks like `extract_attr_ref(tag, "clickable") == Some("true")`.
+/// XML quotes a value with `"` or `'`; uiautomator uses `'` for a value
+/// holding a `"`.
 pub fn extract_attr_ref<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
-    // Scan for `name="` without allocating a format string
-    let name_bytes = name.as_bytes();
-    let tag_bytes = tag.as_bytes();
-    let mut i = 0;
-    while i + name_bytes.len() + 2 <= tag_bytes.len() {
-        if &tag_bytes[i..i + name_bytes.len()] == name_bytes
-            && tag_bytes[i + name_bytes.len()] == b'='
-            && tag_bytes[i + name_bytes.len() + 1] == b'"'
-            && (i == 0 || tag_bytes[i - 1] == b' ' || tag_bytes[i - 1] == b'<')
-        {
-            let value_start = i + name_bytes.len() + 2;
-            if let Some(end) = tag[value_start..].find('"') {
-                return Some(&tag[value_start..value_start + end]);
-            }
+    // Jump from value to value, so `name='…'` inside another value is skipped.
+    let mut from = 0;
+    while let Some(at) = tag[from..].find(['"', '\'']) {
+        let open = from + at;
+        let close = open + 1 + tag[open + 1..].find(char::from(tag.as_bytes()[open]))?;
+        let key = tag[..open]
+            .strip_suffix('=')
+            .and_then(|k| k.strip_suffix(name));
+        if key.is_some_and(|k| k.is_empty() || k.ends_with([' ', '<'])) {
+            return Some(&tag[open + 1..close]);
         }
-        i += 1;
+        from = close + 1;
     }
     None
 }
@@ -821,6 +819,15 @@ impl std::fmt::Display for DeviceOs {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_attribute_quoted_inside_another_value_is_not_read() {
+        let tag = r#"<node text="a clickable='true' bounds='[5,5][6,6]'" clickable="false" bounds="[0,0][9,9]" />"#;
+        assert_eq!(extract_attr_ref(tag, "bounds"), Some("[0,0][9,9]"));
+        assert_eq!(extract_attr_ref(tag, "clickable"), Some("false"));
+        let mirror = r#"<node text='say bounds="[5,5][6,6]"' bounds="[0,0][9,9]" />"#;
+        assert_eq!(extract_attr_ref(mirror, "bounds"), Some("[0,0][9,9]"));
+    }
 
     /// A transport that implements only the required methods, so every
     /// capability method below falls through to the trait default.

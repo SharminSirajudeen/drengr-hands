@@ -27,35 +27,27 @@ async fn detect_android() -> Result<Vec<DetectedDevice>> {
 }
 
 /// Parse `adb devices -l` output into detected devices.
+/// A row is `<id> <state> [key:value ...]`; only the state column decides
+/// readiness, since an id or model may itself contain "offline".
 pub fn parse_adb_devices(output: &str) -> Vec<DetectedDevice> {
-    let mut devices = Vec::new();
-
-    for line in output.lines().skip(1) {
-        // Skip header
-        let trimmed = line.trim();
-        if trimmed.is_empty() || !trimmed.contains("device") || trimmed.contains("offline") {
-            continue;
-        }
-
-        let parts: Vec<&str> = trimmed.split_whitespace().collect();
-        if parts.len() >= 2 && parts[1] == "device" {
-            let id = parts[0].to_string();
-            let model = parts
-                .iter()
-                .find(|p| p.starts_with("model:"))
-                .map(|p| p.trim_start_matches("model:").to_string())
-                .unwrap_or_else(|| "Android Device".to_string());
-
-            devices.push(DetectedDevice {
-                id,
+    output
+        .lines()
+        .skip(1) // header
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            let id = parts.next()?;
+            if parts.next()? != "device" {
+                return None;
+            }
+            let model = parts.find_map(|p| p.strip_prefix("model:"));
+            Some(DetectedDevice {
+                id: id.to_string(),
                 os: DeviceOs::Android,
-                model,
+                model: model.unwrap_or("Android Device").to_string(),
                 sdk_version: None,
-            });
-        }
-    }
-
-    devices
+            })
+        })
+        .collect()
 }
 
 /// Detect iOS simulators from `simctl list`.
@@ -232,6 +224,13 @@ pub async fn auto_select_device() -> Result<DetectedDevice> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ready_device_whose_id_or_model_says_offline_is_kept() {
+        let out = "List of devices attached\n0offline\tdevice\nx\tdevice model:offline_phone\n";
+        let ids: Vec<String> = parse_adb_devices(out).into_iter().map(|d| d.id).collect();
+        assert_eq!(ids, ["0offline", "x"]);
+    }
 
     fn dev(id: &str) -> DetectedDevice {
         DetectedDevice {
