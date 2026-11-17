@@ -21,6 +21,7 @@
 pub mod credentials;
 pub mod diag;
 pub mod driver;
+pub mod evidence;
 pub mod expect_network;
 pub mod explore;
 mod guards;
@@ -31,6 +32,8 @@ pub mod network;
 pub mod onboard;
 pub mod ooda;
 pub mod paths;
+#[cfg(test)]
+mod properties;
 pub mod redact;
 pub mod run_outcome;
 pub mod runner;

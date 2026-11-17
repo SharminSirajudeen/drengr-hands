@@ -997,3 +997,72 @@ async fn test_handle_query_logcat_no_package() {
         .unwrap()
         .contains("No device"));
 }
+
+fn network_body(handlers_result: ToolResult) -> Value {
+    let text = handlers_result.content[0]
+        .text
+        .as_deref()
+        .unwrap_or_default();
+    serde_json::from_str(text).expect(text)
+}
+
+#[tokio::test]
+async fn query_network_empty_without_sdk_is_not_a_silent_success() {
+    let handlers = McpHandlers::new();
+    let v = network_body(handlers.handle_query(json!({"question": "network"})).await);
+    assert_eq!(v["returned"], 0);
+    assert_eq!(v["sdk_connected"], false);
+    let note = v["note"].as_str().unwrap_or_default();
+    assert!(
+        note.contains("not that the app made no traffic"),
+        "empty and disconnected must say so, got: {note}"
+    );
+}
+
+#[tokio::test]
+async fn query_network_empty_with_sdk_connected_says_waiting() {
+    let handlers = McpHandlers::new();
+    let _connected = handlers.sdk_presence.enter();
+    let v = network_body(handlers.handle_query(json!({"question": "network"})).await);
+    assert_eq!(v["sdk_connected"], true);
+    let note = v["note"].as_str().unwrap_or_default();
+    assert!(
+        note.contains("reported no network calls yet"),
+        "got: {note}"
+    );
+}
+
+#[tokio::test]
+async fn query_network_shows_an_in_app_body_with_its_source() {
+    let handlers = McpHandlers::new();
+    handlers.network_history.push(
+        NetworkSource::InApp,
+        crate::network::sink::BodyTruncation::None,
+        crate::network::events::NetworkEvent {
+            url: Some("https://api.example.com/v1/checkout".into()),
+            method: Some("POST".into()),
+            status: Some(200),
+            duration_ms: Some(12),
+            request_size: Some(16),
+            response_size: Some(11),
+            timestamp_ms: 1,
+            request_headers: None,
+            response_headers: None,
+            request_body: Some(r#"{"sku":"shoe-1"}"#.into()),
+            response_body: Some(r#"{"ok":true}"#.into()),
+        },
+    );
+    let v = network_body(
+        handlers
+            .handle_query(json!({"question": "network", "source": "in_app"}))
+            .await,
+    );
+    assert_eq!(v["returned"], 1);
+    assert_eq!(v["sources"]["in_app"], 1);
+    assert_eq!(v["calls"][0]["request_preview"], r#"{"sku":"shoe-1"}"#);
+    assert_eq!(v["calls"][0]["response_preview"], r#"{"ok":true}"#);
+    assert!(
+        v.get("note").is_none(),
+        "a sink with calls needs no note: {v}"
+    );
+}

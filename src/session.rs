@@ -46,7 +46,8 @@ pub struct SessionStep {
 /// Compact error summary for quick scanning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkErrorSummary {
-    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
     pub status: u16,
     pub message: String,
     /// Which capture path saw it. An error only logcat saw and an error only the
@@ -388,7 +389,7 @@ mod tests {
             source,
             truncated: crate::network::sink::BodyTruncation::None,
             event: crate::network::events::NetworkEvent {
-                url: url.to_string(),
+                url: Some(url.to_string()),
                 method: Some("POST".to_string()),
                 status: Some(status),
                 duration_ms: Some(10),

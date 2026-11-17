@@ -13,6 +13,17 @@ pub fn redact(input: &str) -> String {
     out
 }
 
+/// Redact any user-typed text inside a `Typed "..."` action description.
+pub fn redact_action(action: &str) -> String {
+    if let Some(rest) = action.strip_prefix("Typed \"") {
+        if let Some(end) = rest.rfind('"') {
+            let typed = &rest[..end];
+            return format!("Typed {}", summarize_typed(typed));
+        }
+    }
+    redact(action)
+}
+
 /// Replace any `type(text)`-style action with a length+kind summary so we
 /// keep the action shape for debugging without leaking what was typed.
 pub fn summarize_typed(text: &str) -> String {

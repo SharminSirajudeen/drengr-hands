@@ -36,6 +36,14 @@ fn check_status(want: Option<u16>, got: Option<u16>) -> Field {
     }
 }
 
+fn check_url(pattern: &str, got: Option<&str>) -> Field {
+    match got {
+        None => Field::Unknown,
+        Some(g) if glob_match(pattern, g) => Field::Match,
+        Some(_) => Field::Differs,
+    }
+}
+
 /// One expectation about the traffic a task should have produced.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ExpectNetwork {
@@ -83,26 +91,20 @@ impl ExpectOutcome {
 
 /// `*` is the only wildcard. Anchored at both ends.
 fn glob_match(pattern: &str, text: &str) -> bool {
-    let mut segments = pattern.split('*');
-    let Some(first) = segments.next() else {
-        return true;
+    let Some((head, rest)) = pattern.split_once('*') else {
+        return pattern == text;
     };
-    if !text.starts_with(first) {
+    let (middle, tail) = rest.rsplit_once('*').unwrap_or(("", rest));
+    let Some(mut free) = text.strip_prefix(head).and_then(|t| t.strip_suffix(tail)) else {
         return false;
-    }
-    let mut cursor = first.len();
-    let mut trailing_wildcard = pattern.starts_with('*') && pattern.len() == 1;
-    for segment in segments {
-        trailing_wildcard = segment.is_empty();
-        if segment.is_empty() {
-            continue;
-        }
-        match text[cursor..].find(segment) {
-            Some(at) => cursor += at + segment.len(),
+    };
+    for segment in middle.split('*') {
+        match free.find(segment) {
+            Some(at) => free = &free[at + segment.len()..],
             None => return false,
         }
     }
-    trailing_wildcard || cursor == text.len()
+    true
 }
 
 fn bodies_of(entry: &SinkEntry) -> [Option<&String>; 2] {
@@ -136,21 +138,18 @@ fn fidelity_note(sources: &[NetworkSource]) -> String {
 
 /// Evaluate one expectation against the entries captured during a task.
 pub fn evaluate(expect: &ExpectNetwork, entries: &[SinkEntry]) -> ExpectOutcome {
-    // The URL is the one field every source records, so it always narrows.
-    let by_url: Vec<&SinkEntry> = entries
-        .iter()
-        .filter(|e| glob_match(&expect.url, &e.event.url))
-        .collect();
-
+    // A capture that saw no URL (CFNetwork's status line carries none) is
+    // Unknown on url the same way a missing method or status is, not a glob miss.
     let mut candidates: Vec<&SinkEntry> = Vec::new();
     let mut blind: Vec<&SinkEntry> = Vec::new();
-    for e in &by_url {
+    for e in entries {
+        let u = check_url(&expect.url, e.event.url.as_deref());
         let m = check_method(expect.method.as_ref(), e.event.method.as_ref());
         let st = check_status(expect.status, e.event.status);
-        if m == Field::Differs || st == Field::Differs {
+        if u == Field::Differs || m == Field::Differs || st == Field::Differs {
             continue;
         }
-        if m == Field::Unknown || st == Field::Unknown {
+        if u == Field::Unknown || m == Field::Unknown || st == Field::Unknown {
             blind.push(e);
         } else {
             candidates.push(e);
@@ -161,17 +160,20 @@ pub fn evaluate(expect: &ExpectNetwork, entries: &[SinkEntry]) -> ExpectOutcome 
     // could not record the field. That is blindness, not a failing app.
     if candidates.is_empty() && !blind.is_empty() {
         let sources = sources_present(&blind);
+        let unknown_field = if blind.iter().any(|e| e.event.url.is_none()) {
+            "url"
+        } else if expect.method.is_some() && blind.iter().any(|e| e.event.method.is_none()) {
+            "method"
+        } else {
+            "status"
+        };
         return ExpectOutcome::Unobservable {
             detail: format!(
                 "{} request{} matched `{}` but could not be checked: the capture recorded no {} for {}. Source fidelity: {}",
                 blind.len(),
                 if blind.len() == 1 { "" } else { "s" },
                 expect.url,
-                if expect.method.is_some() && blind.iter().any(|e| e.event.method.is_none()) {
-                    "method"
-                } else {
-                    "status"
-                },
+                unknown_field,
                 if blind.len() == 1 { "it" } else { "them" },
                 fidelity_note(&sources),
             ),
@@ -292,7 +294,7 @@ mod tests {
 
     fn event(url: &str, method: &str, status: u16) -> NetworkEvent {
         NetworkEvent {
-            url: url.to_string(),
+            url: Some(url.to_string()),
             method: Some(method.to_string()),
             status: Some(status),
             duration_ms: Some(5),
@@ -340,6 +342,36 @@ mod tests {
         assert!(glob_match("https://x.com/*", "https://x.com/v1/checkout"));
         assert!(glob_match("*checkout*", "https://x.com/v1/checkout?a=1"));
         assert!(!glob_match("*/orders", "https://x.com/v1/checkout"));
+    }
+
+    /// Brute-force glob: `m[i][j]` is whether `p[..i]` matches `t[..j]`.
+    fn reference_glob(p: &[u8], t: &[u8]) -> bool {
+        let mut m = vec![vec![false; t.len() + 1]; p.len() + 1];
+        m[0][0] = true;
+        for i in 1..=p.len() {
+            for j in 0..=t.len() {
+                m[i][j] = if p[i - 1] == b'*' {
+                    m[i - 1][j] || (j > 0 && m[i][j - 1])
+                } else {
+                    j > 0 && p[i - 1] == t[j - 1] && m[i - 1][j - 1]
+                };
+            }
+        }
+        m[p.len()][t.len()]
+    }
+
+    #[test]
+    fn glob_anchors_the_last_segment_at_the_end() {
+        assert!(glob_match("*b", "bb"));
+        assert!(glob_match("*/orders", "https://shop.com/orders/42/orders"));
+    }
+
+    proptest::proptest! {
+        #![proptest_config(crate::properties::config(2000))]
+        #[test]
+        fn glob_agrees_with_brute_force(p in "[ab*]{0,6}", t in "[ab]{0,8}") {
+            proptest::prop_assert_eq!(glob_match(&p, &t), reference_glob(p.as_bytes(), t.as_bytes()));
+        }
     }
 
     #[test]
@@ -544,6 +576,25 @@ mod tests {
         let out = evaluate(&e, &[e0]);
         assert!(matches!(out, ExpectOutcome::Unobservable { .. }), "{out:?}");
         assert!(!out.fails_task());
+    }
+
+    #[test]
+    fn an_uncaptured_url_is_unobservable_not_a_failure() {
+        // A capture that saw no URL can neither match the glob nor miss it.
+        let mut e0 = entry(
+            NetworkSource::Logcat,
+            "https://x.com/v1/checkout",
+            "POST",
+            200,
+        );
+        e0.event.url = None;
+        let out = evaluate(&expect("*/v1/checkout"), &[e0]);
+        assert!(
+            matches!(out, ExpectOutcome::Unobservable { .. }),
+            "a missing URL is blindness, not a URL that failed the glob: {out:?}"
+        );
+        assert!(!out.fails_task());
+        assert!(out.detail().contains("recorded no url"), "{out:?}");
     }
 
     #[test]

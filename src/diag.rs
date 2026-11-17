@@ -105,7 +105,7 @@ pub fn build_from_history(
         .iter()
         .map(|s| DiagnosticStep {
             step: s.step as u32,
-            action: redact_action(&s.action),
+            action: redact::redact_action(&s.action),
             outcome: redact::redact(&s.outcome),
             screen_changed: s.screen_changed,
         })
@@ -127,31 +127,20 @@ pub fn build_from_history(
     }
 }
 
-/// Redact any user-typed text inside a `Typed "..."` action description.
-fn redact_action(action: &str) -> String {
-    if let Some(rest) = action.strip_prefix("Typed \"") {
-        if let Some(end) = rest.rfind('"') {
-            let typed = &rest[..end];
-            return format!("Typed {}", redact::summarize_typed(typed));
-        }
-    }
-    redact::redact(action)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn redact_action_strips_typed_text() {
-        let a = redact_action(r#"Typed "user@example.com""#);
+        let a = redact::redact_action(r#"Typed "user@example.com""#);
         assert!(!a.contains("user@example.com"));
         assert!(a.contains("emaillike"));
     }
 
     #[test]
     fn redact_action_runs_general_redact_on_other_actions() {
-        let a = redact_action("Tapped #5 (Login as user@example.com)");
+        let a = redact::redact_action("Tapped #5 (Login as user@example.com)");
         assert!(!a.contains("user@example.com"));
         assert!(a.contains("<email>"));
     }

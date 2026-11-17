@@ -11,3 +11,7 @@
 # Assembled at release time from a built binary, never committed.
 mcpb/server/
 *.mcpb
+android-ime/build/
+android-ime/.gradle/
+android-ime/.kotlin/
+android-ime/local.properties

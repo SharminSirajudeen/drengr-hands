@@ -50,6 +50,21 @@ async fn hub_for(
     (server, transport)
 }
 
+/// Requests the server received for `route`. Anything else is ignored: a
+/// transport dropped by an earlier test fires a detached DELETE for its
+/// session, and wiremock hands its pooled server to the next test, so on a
+/// slow runner that DELETE lands in this server's log.
+async fn hits(server: &MockServer, route: &str) -> usize {
+    let want = format!("{SID}{route}");
+    server
+        .received_requests()
+        .await
+        .expect("recorded requests")
+        .iter()
+        .filter(|r| r.url.path() == want)
+        .count()
+}
+
 /// Body of the most recent request to `route`, ignoring anything else the
 /// server happened to receive.
 async fn last_body_for(server: &MockServer, route: &str) -> Value {
@@ -291,7 +306,10 @@ async fn http_logs_are_parsed_from_appium_log_entries() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].status, Some(200));
     assert_eq!(events[0].method.as_deref(), Some("GET"));
-    assert_eq!(events[0].url, "https://api.example.com/v1/me");
+    assert_eq!(
+        events[0].url.as_deref(),
+        Some("https://api.example.com/v1/me")
+    );
 }
 
 #[tokio::test]
@@ -352,15 +370,19 @@ async fn readers_of_the_device_log_do_not_steal_each_others_lines() {
 #[tokio::test]
 async fn a_bad_package_name_never_reaches_the_wire() {
     let (server, t) = hub("POST", "/appium/device/activate_app", Value::Null).await;
+    t.launch_app("com.example.app").await.unwrap();
+    assert_eq!(hits(&server, "/appium/device/activate_app").await, 1);
     assert!(t.launch_app("com.example.app; rm -rf /").await.is_err());
-    assert!(server.received_requests().await.unwrap().is_empty());
+    assert_eq!(hits(&server, "/appium/device/activate_app").await, 1);
 }
 
 #[tokio::test]
 async fn open_url_rejects_a_scheme_we_will_not_send() {
     let (server, t) = hub("POST", "/url", Value::Null).await;
+    t.open_url("https://example.com/").await.unwrap();
+    assert_eq!(hits(&server, "/url").await, 1);
     assert!(t.open_url("file:///etc/passwd").await.is_err());
-    assert!(server.received_requests().await.unwrap().is_empty());
+    assert_eq!(hits(&server, "/url").await, 1);
 }
 
 #[tokio::test]
@@ -751,4 +773,19 @@ async fn every_capability_gated_refusal_names_the_capability() {
     .await;
     let text = format!("{:#}", android.list_installed_apps().await.unwrap_err());
     assert!(text.contains("uiautomator2:adb_shell"), "{text}");
+}
+
+#[test]
+fn parse_page_source_never_panics() {
+    crate::properties::never_panics(|s| {
+        let _ = super::source::parse_page_source(s);
+    });
+}
+
+#[test]
+fn an_ios_frame_past_i32_saturates_instead_of_overflowing() {
+    let els = super::source::parse_page_source(
+        r#"<e class="c" x="0" y="1405198982" width="0" height="742284666"/>"#,
+    );
+    assert_eq!(els[0].bounds.bottom, i32::MAX);
 }

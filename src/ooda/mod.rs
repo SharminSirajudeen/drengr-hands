@@ -46,6 +46,10 @@ pub struct OodaConfig {
     /// When `Some`, `open_app` may only target packages in this list;
     /// anything else is refused. `None` is unrestricted (CLI default).
     pub allowed_apps: Option<Vec<String>>,
+    /// When `Some`, every executed step leaves a PNG and a `steps.json` entry
+    /// in this folder: the trail `drengr test` turns into evidence. `None`
+    /// records nothing and costs nothing.
+    pub trail_dir: Option<std::path::PathBuf>,
 }
 
 /// Result of an OODA run.
@@ -55,6 +59,8 @@ pub struct OodaResult {
     pub success: bool,
     pub steps: usize,
     pub final_reasoning: String,
+    /// How the loop stopped. `success` says whether; this says why.
+    pub outcome: RunOutcomeKind,
     pub history: Vec<OodaStepSummary>,
 }
 
@@ -154,6 +160,7 @@ pub async fn run_ooda(
         llm.provider().as_str(),
     );
     let mut last_activity = String::from("unknown");
+    let mut trail = crate::evidence::Trail::new(config.trail_dir.clone());
     let progress_check_disabled = std::env::var("DRENGR_DISABLE_PROGRESS_CHECK")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
@@ -215,6 +222,9 @@ pub async fn run_ooda(
         // settled screenshot if carried (the screen hasn't changed since); a fresh
         // screenshot is only fetched when the settle poll couldn't provide one.
         let observe_start = std::time::Instant::now();
+        // Fresh when nothing was carried, or when the carried observation had
+        // no frame (the post-action observe failed) and one is fetched now.
+        let fresh_frame = carried.as_ref().is_none_or(|c| c.2.is_none());
         let (screenshot, elements, activity) = if let Some((els, act, shot)) = carried.take() {
             let shot = match shot {
                 Some(s) => s,
@@ -231,6 +241,12 @@ pub async fn run_ooda(
             (obs.frame, obs.elements, act)
         };
         let observe_ms = observe_start.elapsed().as_millis();
+        // A carried frame is the previous step's after-shot, already on disk.
+        let before = if fresh_frame {
+            trail.frame(&format!("step_{step:03}_before"), &screenshot)
+        } else {
+            None
+        };
 
         // Check for duplicate screen (stuck detection)
         let (_is_dup, dup_count) = optimizer.check_duplicate(&screenshot);
@@ -256,6 +272,7 @@ pub async fn run_ooda(
                     "Stuck: screen unchanged for {} consecutive actions",
                     STUCK_DUP_THRESHOLD
                 ),
+                outcome: RunOutcomeKind::DuplicateScreen,
                 history,
             });
         }
@@ -445,6 +462,14 @@ pub async fn run_ooda(
             // means we do not know, and refusing on it would burn the whole step
             // budget against a device that already finished.
             if let llm::JudgeVerdict::NotComplete(ref why) = verdict {
+                trail.acted(
+                    step,
+                    &format!("claimed done; the judge refused: {why}"),
+                    &activity,
+                    None,
+                    before.clone(),
+                    None,
+                );
                 let retry = format!(
                     "COMPLETION CHECK: you reported done, but the screen does not show it ({}). Finish the task, then confirm the resulting state.",
                     why
@@ -489,6 +514,7 @@ pub async fn run_ooda(
                 success: true,
                 steps: step,
                 final_reasoning: decision.reasoning,
+                outcome: kind,
                 history,
             });
         }
@@ -536,10 +562,19 @@ pub async fn run_ooda(
                         success: false,
                         steps: step,
                         final_reasoning: format!("Stuck: {e} — proposed twice in a row"),
+                        outcome: RunOutcomeKind::ProgressStuck,
                         history,
                     });
                 }
                 last_rejection = Some(signature);
+                trail.acted(
+                    step,
+                    &format!("{} (rejected)", decision.action.canonical_name()),
+                    &last_activity,
+                    None,
+                    before.clone(),
+                    None,
+                );
                 history.push(OodaStepSummary {
                     step,
                     action: format!("{} (rejected)", decision.action.canonical_name()),
@@ -597,6 +632,17 @@ pub async fn run_ooda(
                 tree_available: post_tree_error.is_none(),
             },
         );
+        let after_frame = post_frame
+            .as_deref()
+            .and_then(|f| trail.frame(&format!("step_{step:03}"), f));
+        trail.acted(
+            step,
+            &action_desc,
+            &post_activity,
+            Some(&report),
+            before,
+            after_frame,
+        );
 
         // A nav hop that changed nothing means the edge is stale — strike.
         if via_nav {
@@ -647,6 +693,7 @@ pub async fn run_ooda(
                 success: false,
                 steps: step,
                 final_reasoning: "App crashed".to_string(),
+                outcome: RunOutcomeKind::Crash,
                 history,
             });
         }
@@ -702,6 +749,7 @@ pub async fn run_ooda(
                     success: true,
                     steps: step,
                     final_reasoning: judge_reason,
+                    outcome: RunOutcomeKind::JudgePass,
                     history,
                 });
             }
@@ -824,6 +872,7 @@ pub async fn run_ooda(
         success: false,
         steps: config.max_steps,
         final_reasoning: format!("Exceeded max steps ({})", config.max_steps),
+        outcome,
         history,
     })
 }
@@ -1041,6 +1090,43 @@ mod tests {
         );
     }
 
+    /// The trail is what `drengr test` turns into evidence. A loop that stops
+    /// recording still passes every other test, so the recording is pinned
+    /// here: a record for an executed step after the situation report and
+    /// before the crash exit, a record for a refused step, a frame before a
+    /// fresh observation and one after each action.
+    #[test]
+    fn the_loop_records_every_executed_step_in_the_trail() {
+        let src = ooda_source();
+        let acted = format!("trail.{}(", "acted");
+        let frame = format!("trail.{}(", "frame");
+        assert_eq!(
+            src.matches(&acted).count(),
+            3,
+            "one record for an executed action, one for a refused action, one for a completion claim the judge refused"
+        );
+        assert_eq!(
+            src.matches(&frame).count(),
+            2,
+            "a frame before a fresh observation and one after each action"
+        );
+        let report_at = src
+            .find("situation.report_after_action(")
+            .expect("the situation report exists");
+        let acted_at = src[report_at..]
+            .find(&acted)
+            .map(|i| report_at + i)
+            .expect("the executed step is recorded after the report");
+        let crash_at = src[report_at..]
+            .find("RunOutcomeKind::Crash")
+            .map(|i| report_at + i)
+            .expect("the crash exit exists");
+        assert!(
+            acted_at < crash_at,
+            "the step must be recorded before the crash exit returns, or the crash frame is lost"
+        );
+    }
+
     #[test]
     fn a_self_report_is_not_a_judge_pass() {
         use crate::run_outcome::RunOutcomeKind;
@@ -1063,6 +1149,7 @@ mod tests {
             force_vision: false,
             verify_completion: true,
             allowed_apps: None,
+            trail_dir: None,
         };
         assert_eq!(config.max_steps, 30);
         assert!(config.verify_completion);
@@ -1246,6 +1333,7 @@ mod tests {
             success: true,
             steps: 5,
             final_reasoning: "Dashboard visible".to_string(),
+            outcome: crate::run_outcome::RunOutcomeKind::JudgePass,
             history: vec![],
         };
         assert!(result.success);

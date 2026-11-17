@@ -213,6 +213,72 @@ const BLOCKED_URL_SCHEMES: &[&str] = &[
 mod tests {
     use super::*;
 
+    /// Allowed characters weighted 8:1 against SHELL_CHARS, so a real share
+    /// of inputs is accepted and the invariants below are not vacuous.
+    fn mixed() -> impl proptest::strategy::Strategy<Value = String> {
+        use proptest::prelude::*;
+        let ok = proptest::sample::select(&['a', 'Z', '0', '.', '_', ':', '/', '-', ' ', 'é'][..]);
+        let bad = proptest::sample::select(SHELL_CHARS);
+        proptest::collection::vec(prop_oneof![8 => ok, 1 => bad], 1..16).prop_map(String::from_iter)
+    }
+
+    /// Checks `holds` on everything `accepts` lets through, over 2000 inputs,
+    /// and returns how many it let through.
+    fn accepted_hold(
+        accepts: impl Fn(&str) -> Option<String>,
+        holds: impl Fn(&str) -> bool,
+    ) -> u32 {
+        let taken = std::cell::Cell::new(0);
+        proptest::test_runner::TestRunner::new(crate::properties::config(2000))
+            .run(&mixed(), |s| {
+                if let Some(out) = accepts(&s) {
+                    taken.set(taken.get() + 1);
+                    proptest::prop_assert!(holds(&out), "{:?} accepted", out);
+                }
+                Ok(())
+            })
+            .unwrap();
+        eprintln!("accepted {} of 2000", taken.get());
+        taken.get()
+    }
+
+    fn no_shell(s: &str) -> bool {
+        !s.contains(SHELL_CHARS)
+    }
+
+    #[test]
+    fn accepted_device_ids_are_shell_safe_and_never_flags_or_traversal() {
+        let n = accepted_hold(
+            |s| is_valid_device_id(s).then(|| s.to_string()),
+            |s| no_shell(s) && !s.contains("..") && !s.starts_with('-'),
+        );
+        assert!(n >= 100, "only {n} accepted");
+    }
+
+    #[test]
+    fn accepted_package_names_are_shell_safe_and_never_traversal() {
+        let n = accepted_hold(
+            |s| is_valid_package_name(s).then(|| s.to_string()),
+            |s| no_shell(s) && !s.contains(".."),
+        );
+        assert!(n >= 100, "only {n} accepted");
+    }
+
+    #[test]
+    fn accepted_predicate_tokens_are_shell_safe() {
+        let n = accepted_hold(
+            |s| is_valid_predicate_token(s).then(|| s.to_string()),
+            no_shell,
+        );
+        assert!(n >= 100, "only {n} accepted");
+    }
+
+    #[test]
+    fn sanitized_logcat_filters_are_shell_safe() {
+        let n = accepted_hold(|s| sanitize_logcat_filter(s).ok(), no_shell);
+        assert!(n >= 100, "only {n} accepted");
+    }
+
     // --- Package name tests (existing) ---
 
     #[test]
